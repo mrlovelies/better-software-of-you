@@ -3010,6 +3010,68 @@ class SoYHandler(BaseHTTPRequestHandler):
 
         # ── Create Annotation ─────────────────────────────────────
 
+        # ── Writing Module: Save Draft ─────────────────────────────────
+        m = re.match(r"^/api/writing/drafts/(\d+)/save$", path)
+        if m:
+            draft_id = int(m.group(1))
+            data = self._read_body()
+            new_content = data.get("content")
+            change_summary = (data.get("change_summary") or "").strip() or None
+
+            if not new_content:
+                self._send_json({"error": "content is required"}, 400)
+                return
+
+            conn = _get_db()
+            draft = conn.execute(
+                "SELECT id, current_version, title FROM writing_drafts WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
+            if not draft:
+                conn.close()
+                self._send_json({"error": "Draft not found"}, 404)
+                return
+
+            draft_dict = _row_to_dict(draft)
+            old_version = draft_dict["current_version"]
+            new_version = old_version + 1
+            wc = len(new_content.split())
+
+            conn.execute(
+                """INSERT INTO draft_versions (draft_id, version_number, content, word_count, change_summary, created_at)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'))""",
+                (draft_id, new_version, new_content, wc, change_summary),
+            )
+            conn.execute(
+                """UPDATE writing_drafts
+                   SET current_version = ?, word_count = ?, updated_at = datetime('now')
+                   WHERE id = ?""",
+                (new_version, wc, draft_id),
+            )
+            conn.execute(
+                """INSERT INTO activity_log (entity_type, entity_id, action, details, created_at)
+                   VALUES ('writing_draft', ?, 'version_saved', ?, datetime('now'))""",
+                (
+                    draft_id,
+                    json.dumps({
+                        "version": new_version,
+                        "word_count": wc,
+                        "change_summary": change_summary,
+                        "title": draft_dict["title"],
+                    }),
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            self._send_json({
+                "draft_id": draft_id,
+                "version_number": new_version,
+                "word_count": wc,
+                "change_summary": change_summary,
+            }, 201)
+            return
+
         # ── Writing Module: Create Feedback ───────────────────────────
         if path == "/api/writing/feedback":
             data = self._read_body()

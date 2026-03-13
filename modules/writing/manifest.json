@@ -1,0 +1,49 @@
+{
+  "name": "writing",
+  "display_name": "Writing",
+  "version": "1.0.0",
+  "description": "Versioned draft management with structured feedback, character/POV tagging, and lore cross-referencing. Supports hierarchical structure (chapters containing scenes), immutable version history, and queryable revision feedback.",
+  "migrations": ["037_writing_module.sql", "038_writing_views.sql"],
+  "tables": ["writing_drafts", "draft_versions", "draft_feedback", "draft_lore_links", "draft_characters"],
+  "views": ["v_draft_overview", "v_writing_progress", "v_feedback_queue", "v_lore_coverage", "v_character_appearances"],
+  "entities": ["writing_draft", "draft_version", "draft_feedback_entry", "draft_lore_link", "draft_character"],
+  "commands": [],
+  "standalone_features": [
+    "Create and manage hierarchical draft structures (chapters, scenes, fragments)",
+    "Immutable version history — every save is a new version, content is never lost",
+    "Structured feedback per draft: notes, revisions, critiques, suggestions, questions",
+    "Feedback status tracking: open, addressed, dismissed, deferred",
+    "Character/POV tagging per draft with role context (pov, featured, mentioned)",
+    "Project writing progress dashboard (word counts, status breakdown, feedback queue)",
+    "Full-text draft content preserved across all versions"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "creative_identity",
+      "features": [
+        "Cross-reference drafts with creative_context entries (lore, canon, characters, relationships)",
+        "Link types: references, establishes, contradicts, extends",
+        "Lore coverage view — see which world-building entries are referenced vs orphaned",
+        "Feed approved drafts into writing_samples for mechanical baseline updates"
+      ],
+      "description": "Drafts link to the creative identity module's lore/context layer, enabling lore coverage tracking and continuity verification."
+    },
+    {
+      "requires_module": "project-tracker",
+      "features": [
+        "Writing progress per project with word count and status breakdown",
+        "Draft activity in project timelines",
+        "Milestone tracking tied to draft completion"
+      ],
+      "description": "Writing drafts link to SoY projects, providing writing progress on project pages and dashboards."
+    },
+    {
+      "requires_module": "notes",
+      "features": [
+        "Convert notes to draft fragments",
+        "Cross-reference research notes with drafts"
+      ],
+      "description": "Notes can be promoted to draft fragments. Research notes cross-reference with active drafts."
+    }
+  ]
+}

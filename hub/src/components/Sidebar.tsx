@@ -360,6 +360,29 @@ export default function Sidebar({ nav, currentPage, onNavigate, theme, onToggleT
           </SidebarSection>
         )}
 
+        {/* Creative — show when creative_identity or writing module installed */}
+        {!searching && (hasModule('creative_identity') || hasModule('writing')) && (
+          <SidebarSection id="section-creative" label="Creative">
+            {hasModule('creative_identity') && (
+              <SidebarItem
+                icon={BookOpen}
+                label="Creative Dashboard"
+                active={currentPage === 'creative-dashboard.html'}
+                onClick={() => nav_({ type: 'page', filename: 'creative-dashboard.html' })}
+              />
+            )}
+            {hasModule('writing') && (
+              <SidebarItem
+                icon={PenTool}
+                label="Writing"
+                badge={nav.badges.writing}
+                active={currentPage === 'writing'}
+                onClick={() => nav_({ type: 'writing' } as ContentRoute)}
+              />
+            )}
+          </SidebarSection>
+        )}
+
         {/* Intelligence — show when module installed, regardless of view existence */}
         {!searching && (() => {
           const items: Array<{ mod: string; routeType: ContentRoute['type']; icon: React.ComponentType<{ className?: string }>; label: string; badgeKey: string }> = [
@@ -367,7 +390,6 @@ export default function Sidebar({ nav, currentPage, onNavigate, theme, onToggleT
             { mod: 'decision-log', routeType: 'decisions', icon: Scale, label: 'Decisions', badgeKey: 'decisions' },
             { mod: 'journal', routeType: 'journal', icon: BookOpen, label: 'Journal', badgeKey: 'journal' },
             { mod: 'notes', routeType: 'notes', icon: StickyNote, label: 'Notes', badgeKey: 'notes' },
-            { mod: 'writing', routeType: 'writing', icon: PenTool, label: 'Writing', badgeKey: 'writing' },
           ]
           const visible = items.filter(i => hasModule(i.mod))
           if (visible.length === 0) return null

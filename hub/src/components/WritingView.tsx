@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   PenTool, ChevronRight, ChevronDown, MessageSquare, BookOpen,
   Users, Link2, X, Send, FileText, AlertTriangle, Lightbulb,
-  HelpCircle, Edit3, StickyNote, Eye, Tag,
+  HelpCircle, Edit3, StickyNote, Eye, Tag, Bold, Italic, Minus,
+  Save, Check,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────
@@ -126,6 +127,76 @@ const linkTypeColors: Record<string, string> = {
   extends: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400',
 }
 
+// ── Text <-> HTML conversion ───────────────────────────────
+
+function plainTextToHtml(text: string): string {
+  // If it already contains HTML tags, return as-is
+  if (/<\w+[^>]*>/.test(text)) return text
+  return text
+    .split('\n\n')
+    .map(para => {
+      const trimmed = para.trim()
+      if (!trimmed) return ''
+      if (/^[•·\s*]+$/.test(trimmed) || trimmed === '* * *') {
+        return '<hr />'
+      }
+      return `<p>${trimmed.replace(/\n/g, '<br />')}</p>`
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+// ── Floating Format Toolbar ────────────────────────────────
+
+function FloatingToolbar({
+  position,
+  onBold,
+  onItalic,
+  onSectionBreak,
+}: {
+  position: { x: number; y: number }
+  onBold: () => void
+  onItalic: () => void
+  onSectionBreak: () => void
+}) {
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    left: Math.max(8, Math.min(position.x, window.innerWidth - 180)),
+    top: Math.max(8, position.y - 44),
+    zIndex: 50,
+  }
+
+  return (
+    <div
+      style={style}
+      className="flex items-center gap-0.5 bg-zinc-900 dark:bg-zinc-100 rounded-lg px-1.5 py-1 shadow-xl"
+    >
+      <button
+        onMouseDown={e => { e.preventDefault(); onBold() }}
+        className="p-1.5 rounded text-zinc-200 dark:text-zinc-800 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
+        title="Bold"
+      >
+        <Bold className="w-4 h-4" />
+      </button>
+      <button
+        onMouseDown={e => { e.preventDefault(); onItalic() }}
+        className="p-1.5 rounded text-zinc-200 dark:text-zinc-800 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
+        title="Italic"
+      >
+        <Italic className="w-4 h-4" />
+      </button>
+      <div className="w-px h-5 bg-zinc-700 dark:bg-zinc-300 mx-0.5" />
+      <button
+        onMouseDown={e => { e.preventDefault(); onSectionBreak() }}
+        className="p-1.5 rounded text-zinc-200 dark:text-zinc-800 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
+        title="Section Break"
+      >
+        <Minus className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
 // ── Annotation Popover ─────────────────────────────────────
 
 function AnnotationPopover({
@@ -184,7 +255,6 @@ function AnnotationPopover({
     }
   }
 
-  // Position the popover — clamp to viewport
   const style: React.CSSProperties = {
     position: 'fixed',
     left: Math.min(position.x, window.innerWidth - 340),
@@ -318,7 +388,7 @@ function OutlineItem({
   )
 }
 
-// ── Prose Reader with Selection ────────────────────────────
+// ── Prose Reader with Selection (Read Mode) ────────────────
 
 function ProseReader({
   content,
@@ -351,13 +421,37 @@ function ProseReader({
     })
   }, [])
 
-  // Highlight passages that have feedback
   const highlightedTexts = feedback
     .filter(f => f.highlighted_text && f.status === 'open')
     .map(f => f.highlighted_text!)
 
-  // Render prose with highlighted passages marked
   function renderProse(text: string): React.ReactNode[] {
+    // Handle HTML content (from edit mode saves)
+    if (/<\w+[^>]*>/.test(text)) {
+      // Parse HTML content — split on top-level tags
+      const div = document.createElement('div')
+      div.innerHTML = text
+      const nodes: React.ReactNode[] = []
+      div.childNodes.forEach((node, i) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node as HTMLElement
+          if (el.tagName === 'HR') {
+            nodes.push(<div key={i} className="text-center text-zinc-400 dark:text-zinc-500 py-2 text-sm tracking-widest">&bull; &bull; &bull;</div>)
+          } else {
+            let html = el.innerHTML
+            for (const ht of highlightedTexts) {
+              const escaped = ht.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+              html = html.replace(new RegExp(`(${escaped})`, 'g'),
+                '<mark class="bg-amber-100/70 dark:bg-amber-800/30 rounded px-0.5">$1</mark>')
+            }
+            nodes.push(<p key={i} className="mb-4 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />)
+          }
+        }
+      })
+      return nodes
+    }
+
+    // Handle plain text content (legacy)
     if (highlightedTexts.length === 0) {
       return text.split('\n\n').map((para, i) => {
         if (para.trim().match(/^[•·\s]+$/)) {
@@ -367,7 +461,6 @@ function ProseReader({
       })
     }
 
-    // Simple approach: render paragraphs, highlight matching text spans
     return text.split('\n\n').map((para, i) => {
       if (para.trim().match(/^[•·\s]+$/)) {
         return <div key={i} className="text-center text-zinc-400 dark:text-zinc-500 py-2 text-sm tracking-widest">* * *</div>
@@ -401,6 +494,242 @@ function ProseReader({
           draftId={draftId}
           onSubmit={onNewFeedback}
           onClose={() => { setPopover(null); window.getSelection()?.removeAllRanges() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Prose Editor (Edit Mode) ───────────────────────────────
+
+function ProseEditor({
+  initialContent,
+  draftId,
+  currentVersion,
+  onSaved,
+}: {
+  initialContent: string
+  draftId: number
+  currentVersion: number
+  onSaved: (newVersion: number, newContent: string) => void
+}) {
+  const editorRef = useRef<HTMLDivElement>(null)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [showSummary, setShowSummary] = useState(false)
+  const [changeSummary, setChangeSummary] = useState('')
+  const [savedMsg, setSavedMsg] = useState<string | null>(null)
+  const [formatToolbar, setFormatToolbar] = useState<{ x: number; y: number } | null>(null)
+  const initialHtml = useRef(plainTextToHtml(initialContent))
+
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.innerHTML = initialHtml.current
+    }
+  }, [])
+
+  const handleInput = useCallback(() => {
+    setDirty(true)
+  }, [])
+
+  const handleSelectionChange = useCallback(() => {
+    const sel = window.getSelection()
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+      setFormatToolbar(null)
+      return
+    }
+    // Check selection is within editor
+    if (editorRef.current && editorRef.current.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0)
+      const rect = range.getBoundingClientRect()
+      setFormatToolbar({
+        x: rect.left + rect.width / 2 - 80,
+        y: rect.top,
+      })
+    } else {
+      setFormatToolbar(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => document.removeEventListener('selectionchange', handleSelectionChange)
+  }, [handleSelectionChange])
+
+  function execBold() {
+    document.execCommand('bold')
+    setDirty(true)
+  }
+
+  function execItalic() {
+    document.execCommand('italic')
+    setDirty(true)
+  }
+
+  function insertSectionBreak() {
+    const sel = window.getSelection()
+    if (!sel || !editorRef.current) return
+    // Remove current selection
+    if (!sel.isCollapsed) {
+      sel.deleteFromDocument()
+    }
+    // Insert HR styled as divider
+    const hr = document.createElement('hr')
+    hr.style.border = 'none'
+    hr.style.textAlign = 'center'
+    hr.className = 'section-break-hr'
+
+    const range = sel.getRangeAt(0)
+    range.insertNode(hr)
+    // Move cursor after HR
+    range.setStartAfter(hr)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+    setDirty(true)
+    setFormatToolbar(null)
+  }
+
+  function handleSaveClick() {
+    if (!dirty) return
+    setShowSummary(true)
+  }
+
+  async function handleSaveConfirm() {
+    if (!editorRef.current) return
+    setSaving(true)
+    const htmlContent = editorRef.current.innerHTML
+    try {
+      const res = await fetch(`/api/writing/drafts/${draftId}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: htmlContent,
+          change_summary: changeSummary.trim() || undefined,
+        }),
+      })
+      if (res.ok) {
+        const result = await res.json()
+        const newVersion = result.version_number || currentVersion + 1
+        setDirty(false)
+        setShowSummary(false)
+        setChangeSummary('')
+        setSavedMsg(`Saved v${newVersion}`)
+        setTimeout(() => setSavedMsg(null), 2500)
+        onSaved(newVersion, htmlContent)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      if (dirty) handleSaveClick()
+    }
+  }
+
+  return (
+    <div className="relative">
+      {/* Save bar */}
+      <div className="flex items-center gap-2 mb-4">
+        {showSummary ? (
+          <div className="flex items-center gap-2 flex-1">
+            <input
+              type="text"
+              value={changeSummary}
+              onChange={e => setChangeSummary(e.target.value)}
+              placeholder="What did you change? (optional)"
+              className="flex-1 px-3 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:border-blue-400 dark:focus:border-blue-500"
+              autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveConfirm() }}
+            />
+            <button
+              onClick={handleSaveConfirm}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              onClick={() => { setShowSummary(false); setChangeSummary('') }}
+              className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={handleSaveClick}
+              disabled={!dirty}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+                ${dirty
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
+                }`}
+            >
+              <Save className="w-3.5 h-3.5" />
+              Save
+            </button>
+            {savedMsg && (
+              <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 animate-pulse">
+                <Check className="w-3.5 h-3.5" />
+                {savedMsg}
+              </span>
+            )}
+            {dirty && (
+              <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500">
+                {navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'}+S to save
+              </span>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Editor area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onKeyDown={handleKeyDown}
+        className="prose-editor text-[0.9375rem] text-zinc-800 dark:text-zinc-200 font-serif leading-relaxed selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text outline-none border-l-2 border-blue-200 dark:border-blue-800/40 pl-6 min-h-[400px] [&_p]:mb-4 [&_hr]:border-none [&_hr]:text-center [&_hr]:py-2 [&_hr]:my-4 [&_hr]:[content:''] [&_hr]:block [&_hr]:h-6 [&_strong]:font-bold [&_em]:italic"
+        style={{
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}
+      />
+
+      {/* Section break HR styling */}
+      <style>{`
+        .prose-editor hr {
+          border: none;
+          text-align: center;
+          display: block;
+          height: 1.5rem;
+          margin: 1rem 0;
+        }
+        .prose-editor hr::after {
+          content: '\\2022  \\2022  \\2022';
+          color: #a1a1aa;
+          font-size: 0.875rem;
+          letter-spacing: 0.25em;
+        }
+        .dark .prose-editor hr::after {
+          color: #71717a;
+        }
+      `}</style>
+
+      {/* Floating format toolbar */}
+      {formatToolbar && (
+        <FloatingToolbar
+          position={formatToolbar}
+          onBold={execBold}
+          onItalic={execItalic}
+          onSectionBreak={insertSectionBreak}
         />
       )}
     </div>
@@ -460,6 +789,7 @@ export default function WritingView() {
   const [loadingDraft, setLoadingDraft] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [panelTab, setPanelTab] = useState<'feedback' | 'lore' | 'characters'>('feedback')
+  const [mode, setMode] = useState<'read' | 'edit'>('read')
 
   // Load all drafts (for now, project 209 — Braska's Pilgrimage)
   useEffect(() => {
@@ -477,6 +807,7 @@ export default function WritingView() {
 
   function loadDraft(id: number) {
     setLoadingDraft(true)
+    setMode('read') // Reset to read mode when switching drafts
     fetch(`/api/writing/drafts/${id}`)
       .then(res => res.json())
       .then(data => { setActiveDraft(data); setLoadingDraft(false) })
@@ -489,10 +820,30 @@ export default function WritingView() {
         ...activeDraft,
         feedback: [fb, ...activeDraft.feedback],
       })
-      // Update open_feedback count in outline
       setDrafts(prev => prev.map(d =>
         d.id === activeDraft.id ? { ...d, open_feedback: d.open_feedback + 1 } : d
       ))
+    }
+  }
+
+  function handleSaved(newVersion: number, newContent: string) {
+    if (activeDraft) {
+      const newWordCount = newContent.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
+      setActiveDraft({
+        ...activeDraft,
+        current_version: newVersion,
+        word_count: newWordCount,
+        content: activeDraft.content ? {
+          ...activeDraft.content,
+          content: newContent,
+          version_number: newVersion,
+          word_count: newWordCount,
+        } : null,
+      })
+      setDrafts(prev => prev.map(d =>
+        d.id === activeDraft.id ? { ...d, current_version: newVersion, word_count: newWordCount } : d
+      ))
+      setMode('read')
     }
   }
 
@@ -546,7 +897,7 @@ export default function WritingView() {
         </nav>
       </div>
 
-      {/* ── Main Reading Area ── */}
+      {/* ── Main Reading/Editing Area ── */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Toolbar */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shrink-0">
@@ -571,9 +922,36 @@ export default function WritingView() {
               <span className={`text-[0.625rem] px-2 py-0.5 rounded-full font-medium shrink-0 ${statusColors[activeDraft.status]}`}>
                 {activeDraft.status}
               </span>
+
+              {/* Mode toggle */}
+              {activeDraft.content && (
+                <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 rounded-full p-0.5 ml-2 shrink-0">
+                  <button
+                    onClick={() => setMode('read')}
+                    className={`px-3 py-1 rounded-full text-[0.6875rem] font-medium transition-colors
+                      ${mode === 'read'
+                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                      }`}
+                  >
+                    Read
+                  </button>
+                  <button
+                    onClick={() => setMode('edit')}
+                    className={`px-3 py-1 rounded-full text-[0.6875rem] font-medium transition-colors
+                      ${mode === 'edit'
+                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                      }`}
+                  >
+                    Edit
+                  </button>
+                </div>
+              )}
+
               <span className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 ml-auto shrink-0">
                 {wordCount(activeDraft.word_count)} words
-                {activeDraft.current_version > 0 && ` · v${activeDraft.current_version}`}
+                {activeDraft.current_version > 0 && ` \u00B7 v${activeDraft.current_version}`}
               </span>
             </>
           )}
@@ -592,12 +970,22 @@ export default function WritingView() {
                   {activeDraft.synopsis}
                 </p>
               )}
-              <ProseReader
-                content={activeDraft.content.content}
-                feedback={feedback}
-                draftId={activeDraft.id}
-                onNewFeedback={handleNewFeedback}
-              />
+              {mode === 'read' ? (
+                <ProseReader
+                  content={activeDraft.content.content}
+                  feedback={feedback}
+                  draftId={activeDraft.id}
+                  onNewFeedback={handleNewFeedback}
+                />
+              ) : (
+                <ProseEditor
+                  key={`${activeDraft.id}-${activeDraft.current_version}`}
+                  initialContent={activeDraft.content.content}
+                  draftId={activeDraft.id}
+                  currentVersion={activeDraft.current_version}
+                  onSaved={handleSaved}
+                />
+              )}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center">

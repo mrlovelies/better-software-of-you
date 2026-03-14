@@ -2887,6 +2887,34 @@ class SoYHandler(BaseHTTPRequestHandler):
 
     # ── POST routes ─────────────────────────────────────────────
 
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # ── Delete Writing Feedback ──────────────────────────────────
+        import re as _re
+        m = _re.match(r"^/api/writing/feedback/(\d+)$", path)
+        if m:
+            fid = int(m.group(1))
+            conn = _get_db()
+            row = conn.execute("SELECT id FROM draft_feedback WHERE id = ?", (fid,)).fetchone()
+            if not row:
+                conn.close()
+                self._send_json({"error": "Not found"}, 404)
+                return
+            conn.execute("DELETE FROM draft_feedback WHERE id = ?", (fid,))
+            conn.execute(
+                """INSERT INTO activity_log (entity_type, entity_id, action, details, created_at)
+                   VALUES ('draft_feedback', ?, 'deleted', '{}', datetime('now'))""",
+                (fid,),
+            )
+            conn.commit()
+            conn.close()
+            self._send_json({"deleted": fid})
+            return
+
+        self._send_json({"error": "Not found"}, 404)
+
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path

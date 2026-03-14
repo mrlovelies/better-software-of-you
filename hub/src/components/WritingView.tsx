@@ -3,7 +3,7 @@ import {
   PenTool, ChevronRight, ChevronDown, MessageSquare, BookOpen,
   Users, Link2, X, Send, FileText, AlertTriangle, Lightbulb,
   HelpCircle, Edit3, StickyNote, Eye, Tag, Bold, Italic, Minus,
-  Save, Check,
+  Save, Check, Trash2,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────
@@ -442,7 +442,7 @@ function ProseReader({
             for (const ht of highlightedTexts) {
               const escaped = ht.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
               html = html.replace(new RegExp(`(${escaped})`, 'g'),
-                '<mark class="bg-amber-100/70 dark:bg-amber-800/30 rounded px-0.5">$1</mark>')
+                '<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100">$1</mark>')
             }
             nodes.push(<p key={i} className="mb-4 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />)
           }
@@ -470,7 +470,7 @@ function ProseReader({
       for (const ht of highlightedTexts) {
         const escaped = ht.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         html = html.replace(new RegExp(`(${escaped})`, 'g'),
-          '<mark class="bg-amber-100/70 dark:bg-amber-800/30 rounded px-0.5">$1</mark>')
+          '<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100">$1</mark>')
       }
 
       return <p key={i} className="mb-4 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
@@ -738,7 +738,7 @@ function ProseEditor({
 
 // ── Feedback Panel ─────────────────────────────────────────
 
-function FeedbackPanel({ items }: { items: Feedback[] }) {
+function FeedbackPanel({ items, onDelete }: { items: Feedback[]; onDelete: (id: number) => void }) {
   if (items.length === 0) return null
 
   const open = items.filter(f => f.status === 'open')
@@ -749,11 +749,18 @@ function FeedbackPanel({ items }: { items: Feedback[] }) {
       {open.map(f => {
         const Icon = feedbackIcons[f.feedback_type] || StickyNote
         return (
-          <div key={f.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2.5">
+          <div key={f.id} className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2.5">
             <div className="flex items-center gap-1.5 mb-1">
               <Icon className={`w-3.5 h-3.5 ${feedbackColors[f.feedback_type]}`} />
               <span className="text-[0.6875rem] font-medium text-zinc-700 dark:text-zinc-300 capitalize">{f.feedback_type}</span>
               <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500 ml-auto">{timeAgo(f.created_at)}</span>
+              <button
+                onClick={() => onDelete(f.id)}
+                className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
+                title="Delete note"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
             </div>
             {f.highlighted_text && (
               <p className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 italic line-clamp-2 mb-1 pl-5">"{f.highlighted_text.slice(0, 100)}{f.highlighted_text.length > 100 ? '...' : ''}"</p>
@@ -824,6 +831,24 @@ export default function WritingView() {
         d.id === activeDraft.id ? { ...d, open_feedback: d.open_feedback + 1 } : d
       ))
     }
+  }
+
+  function handleDeleteFeedback(feedbackId: number) {
+    fetch(`/api/writing/feedback/${feedbackId}`, { method: 'DELETE' })
+      .then(res => {
+        if (res.ok && activeDraft) {
+          const wasOpen = activeDraft.feedback.find(f => f.id === feedbackId)?.status === 'open'
+          setActiveDraft({
+            ...activeDraft,
+            feedback: activeDraft.feedback.filter(f => f.id !== feedbackId),
+          })
+          if (wasOpen) {
+            setDrafts(prev => prev.map(d =>
+              d.id === activeDraft.id ? { ...d, open_feedback: Math.max(0, d.open_feedback - 1) } : d
+            ))
+          }
+        }
+      })
   }
 
   function handleSaved(newVersion: number, newContent: string) {
@@ -1039,7 +1064,7 @@ export default function WritingView() {
                   <p className="text-[0.625rem] text-zinc-400 dark:text-zinc-500 mt-1">Highlight text to annotate.</p>
                 </div>
               ) : (
-                <FeedbackPanel items={feedback} />
+                <FeedbackPanel items={feedback} onDelete={handleDeleteFeedback} />
               )
             )}
 

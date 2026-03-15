@@ -14,6 +14,8 @@ import DecisionsView from './components/DecisionsView'
 import JournalView from './components/JournalView'
 import NotesView from './components/NotesView'
 import WritingView from './components/WritingView'
+import LearningView from './components/LearningView'
+import HealthView from './components/HealthView'
 import { useTheme } from './hooks/useTheme'
 import type { NavigationData } from './types'
 
@@ -53,6 +55,8 @@ function routeToPath(r: ContentRoute): string {
     case 'journal': return '/journal'
     case 'notes': return '/notes'
     case 'writing': return '/writing'
+    case 'learning': return '/learning'
+    case 'health': return '/health'
   }
 }
 
@@ -90,6 +94,8 @@ export default function App() {
     '/emails': 'emails', '/calendar': 'calendar', '/decisions': 'decisions',
     '/journal': 'journal', '/notes': 'notes',
     '/writing': 'writing',
+    '/learning': 'learning',
+    '/health': 'health',
   }
   const currentPage = path.startsWith('/pages/')
     ? path.replace(/^\/pages\//, '')
@@ -126,6 +132,8 @@ export default function App() {
         <Route path="/journal" element={<JournalView />} />
         <Route path="/notes" element={<NotesView />} />
         <Route path="/writing" element={<WritingView />} />
+        <Route path="/learning" element={<LearningView />} />
+        <Route path="/health" element={<HealthView />} />
         {/* Fallback — treat unknown paths as home */}
         <Route path="*" element={<HubHome onNavigate={handleNavigate} />} />
       </Routes>

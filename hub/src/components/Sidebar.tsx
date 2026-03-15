@@ -26,6 +26,8 @@ import {
   Lightbulb,
   User,
   PenTool,
+  GraduationCap,
+  Activity,
 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import type { NavigationData, ContentRoute } from '../types'
@@ -390,6 +392,7 @@ export default function Sidebar({ nav, currentPage, onNavigate, theme, onToggleT
             { mod: 'decision-log', routeType: 'decisions', icon: Scale, label: 'Decisions', badgeKey: 'decisions' },
             { mod: 'journal', routeType: 'journal', icon: BookOpen, label: 'Journal', badgeKey: 'journal' },
             { mod: 'notes', routeType: 'notes', icon: StickyNote, label: 'Notes', badgeKey: 'notes' },
+            { mod: 'learning', routeType: 'learning', icon: GraduationCap, label: 'Learning', badgeKey: 'learning' },
           ]
           const visible = items.filter(i => hasModule(i.mod))
           if (visible.length === 0) return null
@@ -457,6 +460,16 @@ export default function Sidebar({ nav, currentPage, onNavigate, theme, onToggleT
               active={currentPage === 'nudges'}
               onClick={() => nav_({ type: 'nudges' })}
             />
+            {hasModule('platform-health') && (
+              <SidebarItem
+                icon={Activity}
+                label="Platform Health"
+                badge={nav.badges.health}
+                badgeAlert={(nav.badges.health || 0) > 0}
+                active={currentPage === 'health'}
+                onClick={() => nav_({ type: 'health' } as ContentRoute)}
+              />
+            )}
             {hasView('timeline.html') && (
               <SidebarItem
                 icon={Clock}

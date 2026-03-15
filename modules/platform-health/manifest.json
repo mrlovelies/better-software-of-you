@@ -1,0 +1,26 @@
+{
+  "name": "platform-health",
+  "display_name": "Platform Health",
+  "version": "0.1.0",
+  "description": "Overnight sweeps monitoring DB integrity, process health, migration drift, and stale servers across all machines. Auto-fixes where possible.",
+  "migration": "041_platform_health.sql",
+  "tables": [
+    "health_checks",
+    "health_sweeps"
+  ],
+  "commands": [],
+  "standalone_features": [
+    "Quick health checks every 15 minutes (process monitoring, stale server, error logs)",
+    "Full nightly sweeps (DB integrity, migration drift, Syncthing status)",
+    "Auto-repair for recoverable issues (restart server, rerun migrations)",
+    "Telegram alerts for unresolvable issues",
+    "Hub dashboard with per-machine status and event timeline"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "ambient-research",
+      "features": ["Research pipeline health included in sweep results"],
+      "description": "Checks for stale research tasks and failed jobs."
+    }
+  ]
+}

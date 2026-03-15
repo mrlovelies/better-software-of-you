@@ -55,3 +55,5 @@ export type ContentRoute =
   | { type: 'journal' }
   | { type: 'notes' }
   | { type: 'writing' }
+  | { type: 'learning' }
+  | { type: 'health' }

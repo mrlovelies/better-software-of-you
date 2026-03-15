@@ -1,0 +1,32 @@
+{
+  "name": "learning",
+  "display_name": "Learning",
+  "version": "0.1.0",
+  "description": "Daily educational digests and weekly workshops, calibrated by interactive feedback to match your learning style and depth.",
+  "migration": "042_learning_module.sql",
+  "tables": [
+    "learning_digests",
+    "learning_feedback",
+    "learning_profile"
+  ],
+  "commands": [],
+  "standalone_features": [
+    "Daily morning digest (8am ET) — educational recap of yesterday's work",
+    "Weekly Sunday workshop — hands-on tutorial from the week's activity",
+    "Per-section feedback reactions that shape a learning profile over time",
+    "Telegram notification when new digests are ready",
+    "Hub view with digest archive, inline reading, and feedback buttons"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "ambient-research",
+      "features": ["Research findings woven into daily/weekly digests"],
+      "description": "Incorporates research tasks and wiki updates into learning content."
+    },
+    {
+      "requires_module": "platform-health",
+      "features": ["Health summary included in daily digest"],
+      "description": "Yesterday's platform health status as a digest section."
+    }
+  ]
+}

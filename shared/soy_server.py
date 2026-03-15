@@ -1788,7 +1788,8 @@ class SoYHandler(BaseHTTPRequestHandler):
 
         # SPA client routes — let React handle these when hub is built
         spa_routes = ("/auditions", "/income", "/contacts/", "/projects/",
-                      "/nudges", "/emails", "/calendar", "/decisions", "/journal", "/notes")
+                      "/nudges", "/emails", "/calendar", "/decisions", "/journal", "/notes",
+                      "/writing", "/learning", "/health")
         if os.path.isdir(HUB_DIR) and any(path == r or path.startswith(r) for r in spa_routes):
             index_path = os.path.join(HUB_DIR, "index.html")
             if os.path.isfile(index_path):
@@ -2227,6 +2228,31 @@ class SoYHandler(BaseHTTPRequestHandler):
             # Attach children to projects
             for proj in nav_projects:
                 proj["children"] = project_sub_views.get(proj["id"], [])
+
+            # Learning badge: digests with no feedback in last 7 days
+            try:
+                row = conn.execute("""
+                    SELECT COUNT(*) as n FROM learning_digests ld
+                    WHERE ld.created_at > datetime('now', '-7 days')
+                      AND NOT EXISTS (
+                        SELECT 1 FROM learning_feedback lf WHERE lf.digest_id = ld.id
+                      )
+                """).fetchone()
+                if row and row["n"] > 0:
+                    badges["learning"] = row["n"]
+            except Exception:
+                pass
+
+            # Health badge: active errors/warnings
+            try:
+                row = conn.execute("""
+                    SELECT COUNT(*) as n FROM v_health_summary
+                    WHERE status IN ('error', 'warning')
+                """).fetchone()
+                if row and row["n"] > 0:
+                    badges["health"] = row["n"]
+            except Exception:
+                pass
 
             conn.close()
 
@@ -2695,6 +2721,134 @@ class SoYHandler(BaseHTTPRequestHandler):
                 """).fetchall()
             conn.close()
             self._send_json([_row_to_dict(r) for r in rows])
+            return
+
+        # ── Platform Health API ──────────────────────────────────
+
+        if path == "/api/health/status":
+            conn = _get_db()
+            try:
+                # Latest sweep
+                sweep = conn.execute(
+                    "SELECT * FROM health_sweeps ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+
+                # Per-check status from view
+                checks = []
+                for r in conn.execute(
+                    "SELECT * FROM v_health_summary ORDER BY machine, check_type"
+                ).fetchall():
+                    checks.append(_row_to_dict(r))
+            except Exception:
+                sweep = None
+                checks = []
+            conn.close()
+            self._send_json({
+                "latest_sweep": _row_to_dict(sweep) if sweep else None,
+                "checks": checks,
+            })
+            return
+
+        if path == "/api/health/history":
+            params = parse_qs(parsed.query)
+            days = int(params.get("days", ["7"])[0])
+            conn = _get_db()
+            try:
+                rows = conn.execute(
+                    """SELECT * FROM health_sweeps
+                       WHERE created_at > datetime('now', ?)
+                       ORDER BY created_at DESC""",
+                    (f"-{days} days",),
+                ).fetchall()
+            except Exception:
+                rows = []
+            conn.close()
+            self._send_json([_row_to_dict(r) for r in rows])
+            return
+
+        # ── Learning API ─────────────────────────────────────────
+
+        if path == "/api/learning/digests":
+            params = parse_qs(parsed.query)
+            dtype = params.get("type", [None])[0]
+            limit = int(params.get("limit", ["20"])[0])
+            conn = _get_db()
+            try:
+                if dtype:
+                    rows = conn.execute(
+                        """SELECT ld.id, ld.digest_type, ld.digest_date, ld.title,
+                                  ld.generation_duration_ms, ld.created_at,
+                                  (SELECT COUNT(*) FROM learning_feedback WHERE digest_id = ld.id) as feedback_count
+                           FROM learning_digests ld
+                           WHERE ld.digest_type = ?
+                           ORDER BY ld.created_at DESC LIMIT ?""",
+                        (dtype, limit),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """SELECT ld.id, ld.digest_type, ld.digest_date, ld.title,
+                                  ld.generation_duration_ms, ld.created_at,
+                                  (SELECT COUNT(*) FROM learning_feedback WHERE digest_id = ld.id) as feedback_count
+                           FROM learning_digests ld
+                           ORDER BY ld.created_at DESC LIMIT ?""",
+                        (limit,),
+                    ).fetchall()
+            except Exception:
+                rows = []
+            conn.close()
+            self._send_json([_row_to_dict(r) for r in rows])
+            return
+
+        m = re.match(r"^/api/learning/digests/(\d+)$", path)
+        if m:
+            did = int(m.group(1))
+            conn = _get_db()
+            try:
+                digest = conn.execute(
+                    "SELECT * FROM learning_digests WHERE id = ?", (did,)
+                ).fetchone()
+                if not digest:
+                    conn.close()
+                    self._send_json({"error": "Not found"}, 404)
+                    return
+                result = _row_to_dict(digest)
+                # Parse sections JSON
+                try:
+                    result["sections"] = json.loads(result["sections"])
+                except Exception:
+                    pass
+                # Attach feedback
+                feedback = conn.execute(
+                    """SELECT id, section_id, reaction, comment, created_at
+                       FROM learning_feedback WHERE digest_id = ?
+                       ORDER BY created_at""",
+                    (did,),
+                ).fetchall()
+                result["feedback"] = [_row_to_dict(f) for f in feedback]
+            except Exception:
+                conn.close()
+                self._send_json({"error": "Not found"}, 404)
+                return
+            conn.close()
+            self._send_json(result)
+            return
+
+        if path == "/api/learning/profile":
+            conn = _get_db()
+            profile = {}
+            try:
+                rows = conn.execute(
+                    "SELECT category, key, value FROM learning_profile"
+                ).fetchall()
+                for r in rows:
+                    cat = r["category"]
+                    if cat not in profile:
+                        profile[cat] = {}
+                    profile[cat][r["key"]] = r["value"]
+            except Exception:
+                pass
+            conn.close()
+            self._send_json(profile)
             return
 
         # ── React Hub (SPA) serving from hub/dist/ ────────────────
@@ -3221,6 +3375,67 @@ class SoYHandler(BaseHTTPRequestHandler):
             row = conn.execute("SELECT * FROM creative_threads WHERE id = ?", (tid,)).fetchone()
             conn.close()
             self._send_json(_row_to_dict(row), 201)
+            return
+
+        # ── Learning Feedback ─────────────────────────────────────
+        if path == "/api/learning/feedback":
+            data = self._read_body()
+            digest_id = data.get("digest_id")
+            section_id = data.get("section_id")
+            reaction = data.get("reaction")
+            comment = data.get("comment")
+
+            if not digest_id or not section_id or not reaction:
+                self._send_json({"error": "digest_id, section_id, and reaction are required"}, 400)
+                return
+
+            valid_reactions = ("got_it", "tell_me_more", "too_basic", "too_advanced", "this_clicked")
+            if reaction not in valid_reactions:
+                self._send_json({"error": f"reaction must be one of: {', '.join(valid_reactions)}"}, 400)
+                return
+
+            conn = _get_db()
+            # Verify digest exists
+            digest = conn.execute(
+                "SELECT id FROM learning_digests WHERE id = ?", (digest_id,)
+            ).fetchone()
+            if not digest:
+                conn.close()
+                self._send_json({"error": "Digest not found"}, 404)
+                return
+
+            # Delete any existing feedback for this section (mutually exclusive reactions)
+            conn.execute(
+                "DELETE FROM learning_feedback WHERE digest_id = ? AND section_id = ?",
+                (digest_id, section_id),
+            )
+            cursor = conn.execute(
+                """INSERT INTO learning_feedback (digest_id, section_id, reaction, comment, created_at)
+                   VALUES (?, ?, ?, ?, datetime('now'))""",
+                (digest_id, section_id, reaction, comment),
+            )
+            conn.commit()
+
+            fb = conn.execute(
+                "SELECT * FROM learning_feedback WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+            conn.close()
+
+            # Update learning profile incrementally
+            try:
+                import importlib.util
+                profile_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "modules", "learning", "profile.py",
+                )
+                spec = importlib.util.spec_from_file_location("learning_profile", profile_path)
+                profile_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(profile_mod)
+                profile_mod.update_from_feedback(digest_id, section_id, reaction)
+            except Exception:
+                pass  # Profile update is best-effort
+
+            self._send_json(_row_to_dict(fb), 201)
             return
 
         if path == "/api/shutdown":

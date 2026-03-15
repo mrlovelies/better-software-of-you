@@ -55,6 +55,7 @@ fi
 # Run bootstrap to init DB and migrations
 echo "  ◆ Initializing database..."
 CLAUDE_PLUGIN_ROOT="$INSTALL_DIR" bash "$INSTALL_DIR/shared/bootstrap.sh" >/dev/null 2>&1
+chmod +x "$INSTALL_DIR/shared/cc"
 echo "  ✓ Database ready."
 
 echo ""
@@ -67,4 +68,7 @@ echo "  Then just talk:"
 echo "    \"Add a contact named Sarah Chen\""
 echo "    \"Connect my Google account\""
 echo "    \"Import this CSV of my clients\""
+echo ""
+echo "  For auto-handoffs across sessions:"
+echo "    Run /session-setup to install the cc wrapper"
 echo ""

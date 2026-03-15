@@ -32,6 +32,9 @@ Present available commands based on what's installed:
 | `/entity-page <name>` | Generate a contact intelligence brief |
 | `/build-all` | Generate ALL views — entity pages, project pages, module views, dashboard |
 | `/soul` | Generate a soul.md snapshot — your profile, patterns, and insights |
+| `/handoff` | Persist session context for cross-interface continuity |
+| `/pickup` | Resume from a previous session's handoff |
+| `/session-setup` | Install the `cc` wrapper for auto-handoffs |
 | `/help-soy` | This help page |
 
 ## If CRM Module Installed

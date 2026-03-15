@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# cc — Claude Code wrapper with auto-handoff
+#
+# Usage: cc [any claude args]
+#   cc                              → interactive session
+#   cc --dangerously-skip-permissions → autonomous mode
+#   cc -p "question"                → pipe mode (skips handoff)
+#
+# After an interactive session exits, automatically runs /handoff
+# to persist session context to the SoY database. This is what makes
+# Telegram and other interfaces aware of what just happened.
+#
+# Install: /session-setup (creates ~/bin/cc symlink)
+
+SOY_DB="$HOME/.local/share/software-of-you/soy.db"
+HOSTNAME=$(hostname -s 2>/dev/null || echo "unknown")
+
+# Startup check: show active handoff if one exists
+if command -v sqlite3 &>/dev/null && [[ -f "$SOY_DB" ]]; then
+    handoff_info=$(sqlite3 "$SOY_DB" "SELECT source || ' · ' || datetime(created_at, 'localtime') FROM session_handoffs WHERE status='active' ORDER BY created_at DESC LIMIT 1" 2>/dev/null)
+    if [[ -n "$handoff_info" ]]; then
+        echo "↳ Active handoff from ${handoff_info} — run /pickup to resume"
+    fi
+fi
+
+# Detect pipe mode — no handoff needed for one-shot queries
+is_pipe_mode=false
+for arg in "$@"; do
+    if [[ "$arg" == "-p" || "$arg" == "--pipe" ]]; then
+        is_pipe_mode=true
+        break
+    fi
+done
+
+# Run Claude with all passed arguments
+claude "$@"
+exit_code=$?
+
+# Skip handoff for pipe mode or if claude failed to start
+if $is_pipe_mode || [[ $exit_code -ne 0 ]]; then
+    exit $exit_code
+fi
+
+# Auto-handoff: continue the session non-interactively to generate a handoff
+echo ""
+echo "Generating handoff for cross-interface continuity..."
+claude -p -c "Run /handoff — persist this session's context to the database so Telegram and other interfaces know what happened. Be thorough but fast." 2>/dev/null
+
+if [[ $? -eq 0 ]]; then
+    # Check if the handoff actually landed in the DB
+    if command -v sqlite3 &>/dev/null && [[ -f "$SOY_DB" ]]; then
+        last=$(sqlite3 "$SOY_DB" "SELECT datetime(created_at, 'localtime') FROM session_handoffs WHERE status='active' ORDER BY created_at DESC LIMIT 1" 2>/dev/null)
+        if [[ -n "$last" ]]; then
+            echo "Handoff saved ($last) — Telegram is in the loop."
+        else
+            echo "Handoff generated but may not have persisted to DB. Check tasks/handoff.md."
+        fi
+    else
+        echo "Handoff generated. DB check skipped (sqlite3 not available)."
+    fi
+else
+    echo "Auto-handoff failed. Run /handoff manually next time."
+fi
+
+exit $exit_code

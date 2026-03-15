@@ -9,6 +9,7 @@ tokens/
 data/tokens/
 .DS_Store
 client_secret_*.json
+tasks/handoff.md
 __pycache__/
 *.pyc
 mcp-server/dist/

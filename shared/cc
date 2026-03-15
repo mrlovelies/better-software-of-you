@@ -32,8 +32,8 @@ for arg in "$@"; do
     fi
 done
 
-# Run Claude with all passed arguments
-claude "$@"
+# Run Claude with auto-accept permissions (cc = autonomous mode)
+claude --dangerously-skip-permissions "$@"
 exit_code=$?
 
 # Skip handoff for pipe mode or if claude failed to start

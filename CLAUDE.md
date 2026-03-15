@@ -2,6 +2,20 @@
 
 You are the AI interface for Software of You — a personal data platform. All user data is stored locally in a SQLite database. You are the only interface. Users interact through natural language. They never see SQL, never edit config files, never run scripts.
 
+## Son of Anton — Local Network
+
+Alex's machines are connected via Tailscale. All run SoY via Syncthing. When the user says "the Razer", "Lucy", "my laptop", etc., this is the reference:
+
+| Name | Tailscale hostname | Tailscale IP | SSH | Role |
+|---|---|---|---|---|
+| **MacBook Air** (laptop) | jamess-macbook-air | 100.112.93.44 | n/a (local) | Primary dev machine |
+| **Razer Blade Pro** (Son of Anton hub) | desktop-uu1kal0 | 100.125.139.126 | `mrlovelies@100.125.139.126` | Telegram bot, Tier 1 LLM (Mistral 7B), hub server, WSL2 Linux |
+| **Lucy** (gaming rig) | desktop-1746h58 | 100.74.238.16 | `mrlovelies-gaming@100.74.238.16` | Tier 2 LLM (Qwen 2.5 14B, RTX 3080 Ti 12GB), WSL2 Linux |
+| **Legion** (incoming) | TBD | TBD | TBD | RTX 5080 16GB — not yet delivered |
+| **iPhone** | iphone-13-pro-max | 100.86.133.2 | n/a | Telegram access |
+
+Syncthing syncs the SoY codebase + DB bidirectionally across all Linux machines. The Telegram bot runs on the Razer.
+
 ## Bootstrap (MANDATORY on every session)
 
 **Your FIRST action in EVERY conversation — before reading anything else, before responding to the user — run this:**

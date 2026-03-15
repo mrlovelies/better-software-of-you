@@ -1,0 +1,8 @@
+name = "soy-shared"
+compatibility_date = "2024-09-25"
+pages_build_output_dir = "./dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "soy-shared"
+database_id = "8533902a-1250-46c3-9097-82fa1cc7830c"

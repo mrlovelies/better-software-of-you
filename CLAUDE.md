@@ -9,8 +9,8 @@ Alex's machines are connected via Tailscale. All run SoY via Syncthing. When the
 | Name | Tailscale hostname | Tailscale IP | SSH | Role |
 |---|---|---|---|---|
 | **MacBook Air** (laptop) | jamess-macbook-air | 100.112.93.44 | n/a (local) | Primary dev machine |
-| **Razer Blade Pro** (Son of Anton hub) | desktop-uu1kal0 | 100.125.139.126 | `mrlovelies@100.125.139.126` | Telegram bot, Tier 1 LLM (Mistral 7B), hub server, WSL2 Linux |
-| **Lucy** (gaming rig) | desktop-1746h58 | 100.74.238.16 | `mrlovelies-gaming@100.74.238.16` | Tier 2 LLM (Qwen 2.5 14B, RTX 3080 Ti 12GB), WSL2 Linux |
+| **Razer Blade Pro** (Son of Anton hub) | soy | 100.125.139.126 | `mrlovelies@100.125.139.126` | Telegram bot, Tier 1 LLM (Mistral 7B), hub server, WSL2 Linux |
+| **Lucy** (gaming rig) | lucy | 100.74.238.16 | `mrlovelies-gaming@100.74.238.16` | Tier 2 LLM (Qwen 2.5 14B, RTX 3080 Ti 12GB), WSL2 Linux |
 | **Legion** (incoming) | TBD | TBD | TBD | RTX 5080 16GB — not yet delivered |
 | **iPhone** | iphone-13-pro-max | 100.86.133.2 | n/a | Telegram access |
 

@@ -1,0 +1,2422 @@
+diff --git a/commands/google-setup.md b/commands/google-setup.md
+index ba09c41..7b903b7 100644
+--- a/commands/google-setup.md
++++ b/commands/google-setup.md
+@@ -5,43 +5,60 @@ allowed-tools: ["Bash", "Read", "Write"]
+ 
+ # Connect Google Account
+ 
+-This sets up Gmail and Google Calendar access for Software of You. Credentials are built in — the user just needs to sign in.
++This sets up Gmail and Google Calendar access for Software of You. Supports multiple Google accounts. Credentials are built in — the user just needs to sign in.
+ 
+ ## Step 1: Check Current Status
+ 
+ Run:
+ ```
+-python3 "${CLAUDE_PLUGIN_ROOT:-$(pwd)}/shared/google_auth.py" status
++python3 "${CLAUDE_PLUGIN_ROOT:-$(pwd)}/shared/google_auth.py" accounts
+ ```
+ 
+-If already authenticated and token is valid, tell the user: "Your Google account is connected as [email]. Gmail and Calendar are ready." Then suggest `/gmail` and `/calendar`. **Stop here.**
++**If accounts are connected:**
+ 
+-If authenticated but token expired, skip to Step 2 (re-auth will refresh it).
++Show the user which accounts are connected, their status, and when they were last synced. For example:
++- "You have 2 Google accounts connected:
++  1. j.alex.somerville@gmail.com (primary) — last synced 2 hours ago
++  2. alex@alexsomerville.com — last synced 2 hours ago"
++
++Then ask: "Want to add another account, or is there something else I can help with?"
++
++If all accounts are healthy, suggest `/gmail` and `/calendar`. **Stop here** unless they want to add another account.
++
++**If no accounts are connected (or legacy token detected):**
++
++Continue to Step 2.
+ 
+ ## Step 2: Run the OAuth Flow
+ 
+ Tell the user: "Opening Google sign-in in your browser — just sign in and click Allow."
+ 
++If they're adding a second account, clarify: "Opening Google sign-in for your additional account. You may need to click 'Use another account' if it defaults to your already-connected account."
++
+ Run:
+ ```
+ python3 "${CLAUDE_PLUGIN_ROOT:-$(pwd)}/shared/google_auth.py" auth
+ ```
+ 
+-This opens the browser, the user authenticates, and the token is saved automatically.
++This opens the browser, the user authenticates, and the token is saved automatically. The account email is auto-detected and registered in the database.
+ 
+ ## Step 3: Verify
+ 
+-Run status check:
++Run:
+ ```
+-python3 "${CLAUDE_PLUGIN_ROOT:-$(pwd)}/shared/google_auth.py" status
++python3 "${CLAUDE_PLUGIN_ROOT:-$(pwd)}/shared/google_auth.py" accounts
+ ```
+ 
+-Confirm: "Connected as [email]. Gmail and Calendar are ready.
++Confirm: "Connected as [email]. Gmail and Calendar are ready."
+ 
+-Try:
++If this is their first account:
++"Try:
+ - `/gmail` — see your recent emails
+ - `/calendar` — see your upcoming events"
+ 
++If this is an additional account:
++"Both accounts will now sync automatically. Emails and calendar events are tagged by source account."
++
+ ## If Something Goes Wrong
+ 
+ - **"Port 8089 already in use"** → another process is using that port. Ask the user to close it or wait a moment.
+@@ -56,6 +73,13 @@ Tell the user: "I need read access to Google Docs for transcript fetching. Re-ru
+ 
+ Then run the full auth flow from Step 2 above. The `prompt=consent` parameter forces Google to re-show the consent screen with all scopes, including the new Docs scope.
+ 
++## Revoking Access
++
++To disconnect a specific account:
++```
++python3 "${CLAUDE_PLUGIN_ROOT:-$(pwd)}/shared/google_auth.py" revoke <email>
++```
++
+ ## Advanced: Custom OAuth Credentials
+ 
+ If a user wants to use their own Google Cloud project instead of the built-in one, they can place a `google_credentials.json` file in `${CLAUDE_PLUGIN_ROOT:-$(pwd)}/config/`. This overrides the embedded defaults.
+diff --git a/data/migrations/015_multi_google_accounts.sql b/data/migrations/015_multi_google_accounts.sql
+new file mode 100644
+index 0000000..b8eff9b
+--- /dev/null
++++ b/data/migrations/015_multi_google_accounts.sql
+@@ -0,0 +1,35 @@
++-- Multi-Google-Account Support
++-- Adds google_accounts table and account_id tracking on emails/calendar_events.
++-- All statements are idempotent.
++
++-- ═══════════════════════════════════════════════════════════════
++-- google_accounts: Track connected Google accounts
++-- ═══════════════════════════════════════════════════════════════
++
++CREATE TABLE IF NOT EXISTS google_accounts (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    email TEXT NOT NULL UNIQUE,
++    display_name TEXT,
++    token_file TEXT NOT NULL,
++    is_primary INTEGER NOT NULL DEFAULT 0,
++    connected_at TEXT NOT NULL DEFAULT (datetime('now')),
++    last_synced_at TEXT,
++    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'revoked'))
++);
++
++-- ═══════════════════════════════════════════════════════════════
++-- Add account_id to emails and calendar_events
++-- ═══════════════════════════════════════════════════════════════
++
++-- SQLite ALTER TABLE ADD COLUMN is idempotent-safe via IF NOT EXISTS workaround:
++-- If column already exists, the ALTER will fail silently (stderr suppressed by bootstrap.sh).
++
++ALTER TABLE emails ADD COLUMN account_id INTEGER REFERENCES google_accounts(id);
++ALTER TABLE calendar_events ADD COLUMN account_id INTEGER REFERENCES google_accounts(id);
++
++-- ═══════════════════════════════════════════════════════════════
++-- Indexes for efficient per-account queries
++-- ═══════════════════════════════════════════════════════════════
++
++CREATE INDEX IF NOT EXISTS idx_emails_account ON emails(account_id);
++CREATE INDEX IF NOT EXISTS idx_events_account ON calendar_events(account_id);
+diff --git a/data/migrations/016_multi_account_views.sql b/data/migrations/016_multi_account_views.sql
+new file mode 100644
+index 0000000..069750c
+--- /dev/null
++++ b/data/migrations/016_multi_account_views.sql
+@@ -0,0 +1,351 @@
++-- Multi-Account Computed Views Update
++-- Re-creates discovery and nudge views to exclude connected Google account emails.
++-- All statements are idempotent (DROP + CREATE).
++
++-- ═══════════════════════════════════════════════════════════════
++-- v_discovery_candidates: Exclude connected Google accounts
++-- ═══════════════════════════════════════════════════════════════
++
++DROP VIEW IF EXISTS v_discovery_candidates;
++CREATE VIEW IF NOT EXISTS v_discovery_candidates AS
++SELECT
++  e.from_address,
++  e.from_name,
++  COUNT(*) AS email_count,
++  COUNT(DISTINCT e.thread_id) AS thread_count,
++  MAX(e.received_at) AS last_email,
++  MIN(e.received_at) AS first_email,
++  CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) AS days_since_last,
++
++  -- Relevance score components
++  MIN(COUNT(*), 10) AS volume_score,
++  MIN(COUNT(DISTINCT e.thread_id) * 2, 10) AS thread_score,
++  CASE
++    WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 7 THEN 5
++    WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 14 THEN 3
++    WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 30 THEN 1
++    ELSE 0
++  END AS recency_score,
++
++  -- Total relevance score
++  MIN(COUNT(*), 10)
++    + MIN(COUNT(DISTINCT e.thread_id) * 2, 10)
++    + CASE
++        WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 7 THEN 5
++        WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 14 THEN 3
++        WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 30 THEN 1
++        ELSE 0
++      END AS relevance_score
++
++FROM emails e
++WHERE e.direction = 'inbound'
++  AND e.contact_id IS NULL
++  AND e.from_address NOT LIKE '%noreply%'
++  AND e.from_address NOT LIKE '%no-reply%'
++  AND e.from_address NOT LIKE '%do-not-reply%'
++  AND e.from_address NOT LIKE '%notifications%'
++  AND e.from_address NOT LIKE '%newsletter%'
++  AND e.from_address NOT LIKE '%digest%'
++  AND e.from_address NOT LIKE '%automated%'
++  AND e.from_address NOT LIKE '%mailer-daemon%'
++  AND e.from_address NOT LIKE '%calendar-notification%'
++  AND e.from_address NOT LIKE '%@calendar.google.com'
++  AND e.from_address NOT LIKE '%@docs.google.com'
++  AND e.from_address NOT LIKE '%@github.com'
++  AND e.from_address NOT LIKE '%@linkedin.com'
++  AND e.from_address NOT LIKE '%@slack.com'
++  AND e.from_address NOT IN (
++    SELECT email FROM contacts WHERE email IS NOT NULL AND email != ''
++  )
++  AND e.from_address NOT IN (
++    SELECT email FROM google_accounts WHERE status = 'active'
++  )
++GROUP BY e.from_address
++HAVING email_count >= 2
++ORDER BY relevance_score DESC, last_email DESC;
++
++
++-- ═══════════════════════════════════════════════════════════════
++-- v_nudge_items: Re-create with updated untracked_contact segment
++-- ═══════════════════════════════════════════════════════════════
++
++DROP VIEW IF EXISTS v_nudge_items;
++CREATE VIEW IF NOT EXISTS v_nudge_items AS
++
++-- Overdue follow-ups (URGENT)
++SELECT
++  'follow_up' AS nudge_type,
++  f.id AS entity_id,
++  'urgent' AS tier,
++  c.name AS entity_name,
++  c.id AS contact_id,
++  NULL AS project_id,
++  f.reason AS description,
++  f.due_date AS relevant_date,
++  CAST(julianday('now') - julianday(f.due_date) AS INTEGER) AS days_value,
++  c.company AS extra_context,
++  'clock' AS icon
++FROM follow_ups f
++JOIN contacts c ON c.id = f.contact_id
++WHERE f.status = 'pending' AND f.due_date < date('now')
++
++UNION ALL
++
++-- Overdue commitments (URGENT)
++SELECT
++  'commitment',
++  com.id,
++  'urgent',
++  CASE WHEN com.is_user_commitment = 1 THEN 'You' ELSE COALESCE(c.name, 'Unknown') END,
++  com.owner_contact_id,
++  NULL,
++  com.description,
++  com.deadline_date,
++  CAST(julianday('now') - julianday(com.deadline_date) AS INTEGER),
++  t.title,
++  'target'
++FROM commitments com
++LEFT JOIN contacts c ON c.id = com.owner_contact_id
++LEFT JOIN transcripts t ON t.id = com.transcript_id
++WHERE com.status IN ('open', 'overdue') AND com.deadline_date < date('now')
++
++UNION ALL
++
++-- Overdue tasks (URGENT)
++SELECT
++  'task',
++  tk.id,
++  'urgent',
++  tk.title,
++  NULL,
++  tk.project_id,
++  p.name,
++  tk.due_date,
++  CAST(julianday('now') - julianday(tk.due_date) AS INTEGER),
++  p.name,
++  'check-square'
++FROM tasks tk
++JOIN projects p ON p.id = tk.project_id
++WHERE tk.status NOT IN ('done') AND tk.due_date < date('now')
++
++UNION ALL
++
++-- Follow-ups due soon (SOON — within 3 days)
++SELECT
++  'follow_up',
++  f.id,
++  'soon',
++  c.name,
++  c.id,
++  NULL,
++  f.reason,
++  f.due_date,
++  CAST(julianday(f.due_date) - julianday('now') AS INTEGER),
++  c.company,
++  'clock'
++FROM follow_ups f
++JOIN contacts c ON c.id = f.contact_id
++WHERE f.status = 'pending'
++  AND f.due_date BETWEEN date('now') AND date('now', '+3 days')
++
++UNION ALL
++
++-- Commitments due soon (SOON — within 3 days)
++SELECT
++  'commitment',
++  com.id,
++  'soon',
++  CASE WHEN com.is_user_commitment = 1 THEN 'You' ELSE COALESCE(c.name, 'Unknown') END,
++  com.owner_contact_id,
++  NULL,
++  com.description,
++  com.deadline_date,
++  CAST(julianday(com.deadline_date) - julianday('now') AS INTEGER),
++  t.title,
++  'target'
++FROM commitments com
++LEFT JOIN contacts c ON c.id = com.owner_contact_id
++LEFT JOIN transcripts t ON t.id = com.transcript_id
++WHERE com.status = 'open'
++  AND com.deadline_date BETWEEN date('now') AND date('now', '+3 days')
++
++UNION ALL
++
++-- Tasks due soon (SOON — within 3 days)
++SELECT
++  'task',
++  tk.id,
++  'soon',
++  tk.title,
++  NULL,
++  tk.project_id,
++  p.name,
++  tk.due_date,
++  CAST(julianday(tk.due_date) - julianday('now') AS INTEGER),
++  p.name,
++  'check-square'
++FROM tasks tk
++JOIN projects p ON p.id = tk.project_id
++WHERE tk.status NOT IN ('done')
++  AND tk.due_date BETWEEN date('now') AND date('now', '+3 days')
++
++UNION ALL
++
++-- Projects approaching target date (SOON — within 7 days)
++SELECT
++  'project',
++  p.id,
++  'soon',
++  p.name,
++  NULL,
++  p.id,
++  CAST((SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status != 'done') AS TEXT) || ' open tasks',
++  p.target_date,
++  CAST(julianday(p.target_date) - julianday('now') AS INTEGER),
++  NULL,
++  'folder'
++FROM projects p
++WHERE p.status = 'active'
++  AND p.target_date BETWEEN date('now') AND date('now', '+7 days')
++
++UNION ALL
++
++-- Contacts going cold (AWARENESS — 30+ days silent)
++SELECT
++  'cold_contact',
++  c.id,
++  'awareness',
++  c.name,
++  c.id,
++  NULL,
++  c.company,
++  (SELECT MAX(ts) FROM (
++    SELECT MAX(occurred_at) AS ts FROM contact_interactions WHERE contact_id = c.id
++    UNION ALL SELECT MAX(received_at) FROM emails WHERE contact_id = c.id
++    UNION ALL SELECT MAX(t2.occurred_at) FROM transcripts t2
++      JOIN transcript_participants tp ON tp.transcript_id = t2.id WHERE tp.contact_id = c.id
++  )),
++  CAST(julianday('now') - julianday(
++    (SELECT MAX(ts) FROM (
++      SELECT MAX(occurred_at) AS ts FROM contact_interactions WHERE contact_id = c.id
++      UNION ALL SELECT MAX(received_at) FROM emails WHERE contact_id = c.id
++      UNION ALL SELECT MAX(t2.occurred_at) FROM transcripts t2
++        JOIN transcript_participants tp ON tp.transcript_id = t2.id WHERE tp.contact_id = c.id
++    ))
++  ) AS INTEGER),
++  c.email,
++  'users'
++FROM contacts c
++WHERE c.status = 'active'
++  AND (
++    -- Either last activity was 30+ days ago
++    (SELECT MAX(ts) FROM (
++      SELECT MAX(occurred_at) AS ts FROM contact_interactions WHERE contact_id = c.id
++      UNION ALL SELECT MAX(received_at) FROM emails WHERE contact_id = c.id
++      UNION ALL SELECT MAX(t2.occurred_at) FROM transcripts t2
++        JOIN transcript_participants tp ON tp.transcript_id = t2.id WHERE tp.contact_id = c.id
++    )) < datetime('now', '-30 days')
++    -- Or contact has zero activity and was added 30+ days ago
++    OR (
++      (SELECT MAX(ts) FROM (
++        SELECT MAX(occurred_at) AS ts FROM contact_interactions WHERE contact_id = c.id
++        UNION ALL SELECT MAX(received_at) FROM emails WHERE contact_id = c.id
++        UNION ALL SELECT MAX(t2.occurred_at) FROM transcripts t2
++          JOIN transcript_participants tp ON tp.transcript_id = t2.id WHERE tp.contact_id = c.id
++      )) IS NULL
++      AND julianday('now') - julianday(c.created_at) > 30
++    )
++  )
++
++UNION ALL
++
++-- Stale projects (AWARENESS — 14+ days no activity)
++SELECT
++  'stale_project',
++  p.id,
++  'awareness',
++  p.name,
++  NULL,
++  p.id,
++  p.status,
++  MAX(al.created_at),
++  CAST(julianday('now') - julianday(COALESCE(MAX(al.created_at), p.created_at)) AS INTEGER),
++  p.target_date,
++  'folder'
++FROM projects p
++LEFT JOIN activity_log al ON al.entity_type = 'project' AND al.entity_id = p.id
++WHERE p.status IN ('active', 'planning')
++GROUP BY p.id
++HAVING CAST(julianday('now') - julianday(COALESCE(MAX(al.created_at), p.created_at)) AS INTEGER) > 14
++
++UNION ALL
++
++-- Decisions pending outcome (AWARENESS — 90+ days old)
++SELECT
++  'decision',
++  d.id,
++  'awareness',
++  d.title,
++  d.contact_id,
++  d.project_id,
++  'No outcome recorded',
++  d.decided_at,
++  CAST(julianday('now') - julianday(d.decided_at) AS INTEGER),
++  NULL,
++  'git-branch'
++FROM decisions d
++WHERE d.status = 'decided' AND d.outcome IS NULL
++  AND julianday('now') - julianday(d.decided_at) > 90
++
++UNION ALL
++
++-- Untracked frequent contacts (AWARENESS — 5+ emails, not in CRM, not a connected account)
++SELECT
++  'untracked_contact',
++  NULL,
++  'awareness',
++  COALESCE(e.from_name, e.from_address),
++  NULL,
++  NULL,
++  e.from_address,
++  MAX(e.received_at),
++  COUNT(*),
++  CAST(COUNT(DISTINCT e.thread_id) AS TEXT) || ' threads',
++  'user-plus'
++FROM emails e
++WHERE e.direction = 'inbound'
++  AND e.contact_id IS NULL
++  AND e.from_address NOT LIKE '%noreply%'
++  AND e.from_address NOT LIKE '%no-reply%'
++  AND e.from_address NOT LIKE '%do-not-reply%'
++  AND e.from_address NOT LIKE '%notifications%'
++  AND e.from_address NOT LIKE '%newsletter%'
++  AND e.from_address NOT LIKE '%digest%'
++  AND e.from_address NOT LIKE '%automated%'
++  AND e.from_address NOT LIKE '%mailer-daemon%'
++  AND e.from_address NOT LIKE '%@calendar.google.com'
++  AND e.from_address NOT LIKE '%@docs.google.com'
++  AND e.from_address NOT LIKE '%@github.com'
++  AND e.from_address NOT LIKE '%@linkedin.com'
++  AND e.from_address NOT LIKE '%@slack.com'
++  AND e.from_address NOT IN (
++    SELECT email FROM contacts WHERE email IS NOT NULL AND email != ''
++  )
++  AND e.from_address NOT IN (
++    SELECT email FROM google_accounts WHERE status = 'active'
++  )
++GROUP BY e.from_address
++HAVING COUNT(*) >= 5;
++
++
++-- ═══════════════════════════════════════════════════════════════
++-- v_nudge_summary: Re-create (depends on v_nudge_items)
++-- ═══════════════════════════════════════════════════════════════
++
++DROP VIEW IF EXISTS v_nudge_summary;
++CREATE VIEW IF NOT EXISTS v_nudge_summary AS
++SELECT
++  tier,
++  COUNT(*) AS count
++FROM v_nudge_items
++GROUP BY tier;
+diff --git a/mcp-server/src/software_of_you/google_auth.py b/mcp-server/src/software_of_you/google_auth.py
+index e1ec3cf..ba01047 100644
+--- a/mcp-server/src/software_of_you/google_auth.py
++++ b/mcp-server/src/software_of_you/google_auth.py
+@@ -2,6 +2,9 @@
+ 
+ Ported from shared/google_auth.py. Handles the full OAuth flow using
+ only stdlib — no pip install required beyond the MCP SDK.
++
++Supports multiple Google accounts. Tokens stored per-account in
++DATA_DIR/tokens/<email>.json.
+ """
+ 
+ import base64
+@@ -9,6 +12,7 @@ import hashlib
+ import json
+ import os
+ import secrets
++import sqlite3
+ import sys
+ import time
+ import urllib.error
+@@ -16,10 +20,12 @@ import urllib.parse
+ import urllib.request
+ import webbrowser
+ from http.server import BaseHTTPRequestHandler, HTTPServer
++from pathlib import Path
+ 
+-from software_of_you.db import DATA_DIR
++from software_of_you.db import DATA_DIR, DB_PATH, execute, execute_write, execute_many
+ 
+-TOKEN_FILE = DATA_DIR / "google_token.json"
++TOKENS_DIR = DATA_DIR / "tokens"
++LEGACY_TOKEN_FILE = DATA_DIR / "google_token.json"
+ 
+ # Embedded OAuth credentials (Desktop app — not secret per Google's design)
+ DEFAULT_CREDENTIALS = {
+@@ -42,16 +48,37 @@ TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+ REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke"
+ 
+ 
+-def load_token() -> dict | None:
+-    if not TOKEN_FILE.exists():
++# ── Token file helpers ────────────────────────────────────────────────
++
++
++def _email_to_filename(email: str) -> str:
++    """Convert email to safe filename: foo@bar.com → foo_bar.com.json"""
++    return email.replace("@", "_") + ".json"
++
++
++def _token_path_for(email: str) -> Path:
++    """Get the token file path for a specific account email."""
++    return TOKENS_DIR / _email_to_filename(email)
++
++
++def load_token(email: str | None = None) -> dict | None:
++    """Load token from disk. Per-account if email given, else legacy."""
++    path = _token_path_for(email) if email else LEGACY_TOKEN_FILE
++    if not path.exists():
+         return None
+-    return json.loads(TOKEN_FILE.read_text())
++    return json.loads(path.read_text())
+ 
+ 
+-def save_token(token_data: dict) -> None:
+-    DATA_DIR.mkdir(parents=True, exist_ok=True)
++def save_token(token_data: dict, email: str | None = None) -> None:
++    """Save token to disk. Per-account if email given, else legacy."""
++    if email:
++        TOKENS_DIR.mkdir(parents=True, exist_ok=True)
++        path = _token_path_for(email)
++    else:
++        DATA_DIR.mkdir(parents=True, exist_ok=True)
++        path = LEGACY_TOKEN_FILE
+     token_data["saved_at"] = int(time.time())
+-    TOKEN_FILE.write_text(json.dumps(token_data, indent=2))
++    path.write_text(json.dumps(token_data, indent=2))
+ 
+ 
+ def is_token_expired(token_data: dict) -> bool:
+@@ -62,7 +89,7 @@ def is_token_expired(token_data: dict) -> bool:
+     return time.time() > (saved_at + expires_in - 60)
+ 
+ 
+-def refresh_access_token(token_data: dict) -> dict | None:
++def refresh_access_token(token_data: dict, email: str | None = None) -> dict | None:
+     refresh_token = token_data.get("refresh_token")
+     if not refresh_token:
+         return None
+@@ -79,27 +106,181 @@ def refresh_access_token(token_data: dict) -> dict | None:
+         with urllib.request.urlopen(req, timeout=10) as resp:
+             new_data = json.loads(resp.read().decode())
+         new_data["refresh_token"] = refresh_token
+-        save_token(new_data)
++        save_token(new_data, email=email)
+         return new_data
+     except urllib.error.URLError as e:
+         print(f"Token refresh failed: {e}", file=sys.stderr)
+         return None
+ 
+ 
+-def get_valid_token() -> str | None:
+-    """Get a valid access token, refreshing if needed."""
++# ── Account management ────────────────────────────────────────────────
++
++
++def list_accounts() -> list[str]:
++    """Return list of account emails from the tokens/ directory."""
++    if not TOKENS_DIR.is_dir():
++        return []
++    accounts = []
++    for fpath in sorted(TOKENS_DIR.iterdir()):
++        if fpath.suffix == ".json":
++            name = fpath.stem  # e.g., "j.alex.somerville_gmail.com"
++            parts = name.rsplit("_", 1)
++            if len(parts) == 2 and "." in parts[1]:
++                email = parts[0] + "@" + parts[1]
++            else:
++                email = name
++            accounts.append(email)
++    return accounts
++
++
++def _is_primary(email: str) -> bool:
++    """Check if an account is marked as primary in the DB."""
++    try:
++        rows = execute("SELECT is_primary FROM google_accounts WHERE email = ?", (email,))
++        return bool(rows and rows[0]["is_primary"] == 1)
++    except Exception:
++        return False
++
++
++def _get_user_email(access_token: str) -> tuple[str | None, str | None]:
++    """Get the authenticated user's email from the userinfo API."""
++    try:
++        req = urllib.request.Request(
++            "https://www.googleapis.com/oauth2/v2/userinfo",
++            headers={"Authorization": f"Bearer {access_token}"},
++        )
++        with urllib.request.urlopen(req, timeout=5) as resp:
++            info = json.loads(resp.read().decode())
++            return info.get("email"), info.get("name")
++    except urllib.error.URLError:
++        return None, None
++
++
++def _register_account_in_db(email: str, display_name: str | None, token_file: str, is_first: bool = False) -> None:
++    """Register or update a Google account in the database."""
++    try:
++        existing = execute("SELECT id FROM google_accounts WHERE email = ?", (email,))
++
++        if existing:
++            execute_write(
++                """UPDATE google_accounts
++                   SET token_file = ?, display_name = ?, status = 'active',
++                       last_synced_at = datetime('now')
++                   WHERE email = ?""",
++                (token_file, display_name, email),
++            )
++        else:
++            count_rows = execute("SELECT COUNT(*) as cnt FROM google_accounts", ())
++            count = count_rows[0]["cnt"] if count_rows else 0
++            is_primary = 1 if (is_first or count == 0) else 0
++
++            execute_write(
++                """INSERT INTO google_accounts (email, display_name, token_file, is_primary, status)
++                   VALUES (?, ?, ?, ?, 'active')""",
++                (email, display_name, token_file, is_primary),
++            )
++    except Exception as e:
++        print(f"Could not register account in DB: {e}", file=sys.stderr)
++
++
++def migrate_legacy_token() -> str | None:
++    """Migrate legacy google_token.json to per-account tokens/ directory.
++
++    Returns the email of the migrated account, or None.
++    """
++    if not LEGACY_TOKEN_FILE.exists():
++        return None
++
+     token_data = load_token()
+     if not token_data:
+         return None
+ 
+     if is_token_expired(token_data):
+         token_data = refresh_access_token(token_data)
++        if not token_data:
++            return None
++
++    access_token = token_data.get("access_token")
++    if not access_token:
++        return None
++
++    email, display_name = _get_user_email(access_token)
++    if not email:
++        return None
++
++    # Check if already migrated
++    new_path = _token_path_for(email)
++    if new_path.exists():
++        LEGACY_TOKEN_FILE.unlink()
++        return email
++
++    # Save to new location
++    save_token(token_data, email=email)
++
++    # Remove legacy file
++    LEGACY_TOKEN_FILE.unlink()
++
++    # Register in DB
++    token_filename = _email_to_filename(email)
++    _register_account_in_db(email, display_name, token_filename, is_first=True)
++
++    # Backfill existing data
++    _backfill_account_id(email)
++
++    return email
++
++
++def _backfill_account_id(email: str) -> None:
++    """Set account_id on existing emails and calendar_events."""
++    try:
++        rows = execute("SELECT id FROM google_accounts WHERE email = ?", (email,))
++        if not rows:
++            return
++        account_id = rows[0]["id"]
++
++        execute_write("UPDATE emails SET account_id = ? WHERE account_id IS NULL", (account_id,))
++        execute_write("UPDATE calendar_events SET account_id = ? WHERE account_id IS NULL", (account_id,))
++    except Exception:
++        pass
++
++
++# ── Token access ──────────────────────────────────────────────────────
++
++
++def get_valid_token(email: str | None = None) -> str | None:
++    """Get a valid access token, refreshing if needed.
++
++    If email given, use that account's token.
++    If None, try accounts first (prefer primary), then legacy.
++    """
++    if email:
++        token_data = load_token(email=email)
++    else:
++        accounts = list_accounts()
++        if accounts:
++            email = accounts[0]
++            for acc in accounts:
++                if _is_primary(acc):
++                    email = acc
++                    break
++            token_data = load_token(email=email)
++        else:
++            token_data = load_token()
++
++    if not token_data:
++        return None
++
++    if is_token_expired(token_data):
++        token_data = refresh_access_token(token_data, email=email)
+ 
+     if token_data:
+         return token_data.get("access_token")
+     return None
+ 
+ 
++# ── Auth flow ─────────────────────────────────────────────────────────
++
++
+ class _OAuthHandler(BaseHTTPRequestHandler):
+     auth_code = None
+     error = None
+@@ -131,7 +312,10 @@ class _OAuthHandler(BaseHTTPRequestHandler):
+ 
+ 
+ def run_auth_flow(scopes=None) -> dict:
+-    """Run the full OAuth flow. Opens browser, returns result dict."""
++    """Run the full OAuth flow. Opens browser, returns result dict.
++
++    Auto-detects account email and saves per-account token.
++    """
+     scopes = scopes or DEFAULT_SCOPES
+ 
+     # PKCE
+@@ -196,13 +380,29 @@ def run_auth_flow(scopes=None) -> dict:
+     with urllib.request.urlopen(req, timeout=10) as resp:
+         token_data = json.loads(resp.read().decode())
+ 
+-    save_token(token_data)
+-    return {"success": True, "message": "Google account connected successfully."}
+-
++    # Auto-detect account email
++    access_token = token_data.get("access_token")
++    email, display_name = _get_user_email(access_token) if access_token else (None, None)
++
++    if email:
++        save_token(token_data, email=email)
++        token_filename = _email_to_filename(email)
++        _register_account_in_db(email, display_name, token_filename)
++        return {"success": True, "message": f"Google account connected: {email}", "email": email}
++    else:
++        save_token(token_data)
++        return {"success": True, "message": "Google account connected successfully."}
++
++
++def revoke_token(email: str | None = None) -> None:
++    """Revoke the token and delete the file."""
++    if email:
++        token_data = load_token(email=email)
++        token_path = _token_path_for(email)
++    else:
++        token_data = load_token()
++        token_path = LEGACY_TOKEN_FILE
+ 
+-def revoke_token() -> None:
+-    """Revoke the current token and delete the file."""
+-    token_data = load_token()
+     if not token_data:
+         return
+ 
+@@ -215,5 +415,14 @@ def revoke_token() -> None:
+     except urllib.error.URLError:
+         pass
+ 
+-    if TOKEN_FILE.exists():
+-        TOKEN_FILE.unlink()
++    if token_path.exists():
++        token_path.unlink()
++
++    if email:
++        try:
++            execute_write(
++                "UPDATE google_accounts SET status = 'revoked' WHERE email = ?",
++                (email,),
++            )
++        except Exception:
++            pass
+diff --git a/mcp-server/src/software_of_you/google_sync.py b/mcp-server/src/software_of_you/google_sync.py
+index 57849eb..5c4a9f5 100644
+--- a/mcp-server/src/software_of_you/google_sync.py
++++ b/mcp-server/src/software_of_you/google_sync.py
+@@ -2,6 +2,8 @@
+ 
+ Uses only stdlib (urllib) — no google-api-python-client needed.
+ Syncs data into the shared SQLite database.
++
++Supports multiple Google accounts via account_email parameter.
+ """
+ 
+ import base64
+@@ -14,7 +16,7 @@ import urllib.request
+ from datetime import datetime, timedelta
+ 
+ from software_of_you.db import execute, execute_many, execute_write
+-from software_of_you.google_auth import get_valid_token
++from software_of_you.google_auth import get_valid_token, list_accounts, migrate_legacy_token
+ 
+ GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
+ CALENDAR_API = "https://www.googleapis.com/calendar/v3"
+@@ -40,13 +42,28 @@ def _get_user_email(token: str) -> str | None:
+         return None
+ 
+ 
+-def sync_gmail(token: str | None = None) -> dict:
+-    """Sync recent emails from Gmail."""
+-    token = token or get_valid_token()
++def _get_account_id(email: str) -> int | None:
++    """Look up the google_accounts.id for an email."""
++    rows = execute("SELECT id FROM google_accounts WHERE email = ?", (email,))
++    return rows[0]["id"] if rows else None
++
++
++def sync_gmail(token: str | None = None, account_email: str | None = None) -> dict:
++    """Sync recent emails from Gmail.
++
++    account_email: the email of the account being synced, used for:
++    - direction detection (outbound if from_email matches account_email)
++    - tagging emails with account_id
++    """
++    token = token or get_valid_token(email=account_email)
+     if not token:
+         return {"error": "Not authenticated with Google."}
+ 
+-    user_email = _get_user_email(token)
++    # Determine the account email for direction detection
++    if not account_email:
++        account_email = _get_user_email(token)
++
++    account_id = _get_account_id(account_email) if account_email else None
+     synced = 0
+ 
+     try:
+@@ -83,12 +100,11 @@ def sync_gmail(token: str | None = None) -> dict:
+                 from_name = parts[0].strip().strip('"')
+                 from_email = parts[1].rstrip(">").strip()
+ 
+-            # Determine direction
+-            direction = "outbound" if user_email and from_email.lower() == user_email.lower() else "inbound"
++            # Determine direction — compare against the account being synced
++            direction = "outbound" if account_email and from_email.lower() == account_email.lower() else "inbound"
+ 
+             # Try to match contact
+             contact_match_email = from_email if direction == "inbound" else to_addr
+-            # Extract email from "Name <email>" format
+             if "<" in contact_match_email:
+                 contact_match_email = contact_match_email.split("<")[1].rstrip(">").strip()
+ 
+@@ -111,36 +127,58 @@ def sync_gmail(token: str | None = None) -> dict:
+             statements.append((
+                 """INSERT OR IGNORE INTO emails
+                    (gmail_id, thread_id, contact_id, direction, from_address, to_addresses,
+-                    subject, snippet, labels, is_read, is_starred, received_at, from_name)
+-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
++                    subject, snippet, labels, is_read, is_starred, received_at, from_name, account_id)
++                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 (msg_id, thread_id, contact_id, direction, from_email, to_addr,
+                  subject, snippet, labels, 1 if is_read else 0, 1 if is_starred else 0,
+-                 received_at, from_name),
++                 received_at, from_name, account_id),
+             ))
+             synced += 1
+ 
+         if statements:
+             execute_many(statements)
+ 
+-        # Update sync timestamp
+-        execute_many([(
+-            "INSERT OR REPLACE INTO soy_meta (key, value, updated_at) VALUES ('gmail_last_synced', datetime('now'), datetime('now'))",
+-            (),
+-        )])
++        # Update sync timestamp (per-account if available)
++        meta_key = f"gmail_last_synced:{account_email}" if account_email else "gmail_last_synced"
++        execute_many([
++            (
++                "INSERT OR REPLACE INTO soy_meta (key, value, updated_at) VALUES (?, datetime('now'), datetime('now'))",
++                (meta_key,),
++            ),
++            # Also update the global key for backward compatibility
++            (
++                "INSERT OR REPLACE INTO soy_meta (key, value, updated_at) VALUES ('gmail_last_synced', datetime('now'), datetime('now'))",
++                (),
++            ),
++        ])
+ 
+-        return {"synced": synced, "total_checked": len(messages)}
++        # Update account's last_synced_at
++        if account_email:
++            try:
++                execute_write(
++                    "UPDATE google_accounts SET last_synced_at = datetime('now') WHERE email = ?",
++                    (account_email,),
++                )
++            except Exception:
++                pass
++
++        return {"synced": synced, "total_checked": len(messages), "account": account_email}
+ 
+     except urllib.error.URLError as e:
+         print(f"Gmail sync failed: {e}", file=sys.stderr)
+         return {"error": str(e), "synced": synced}
+ 
+ 
+-def sync_calendar(token: str | None = None) -> dict:
++def sync_calendar(token: str | None = None, account_email: str | None = None) -> dict:
+     """Sync calendar events (next 14 days + last 7 days)."""
+-    token = token or get_valid_token()
++    token = token or get_valid_token(email=account_email)
+     if not token:
+         return {"error": "Not authenticated with Google."}
+ 
++    if not account_email:
++        account_email = _get_user_email(token)
++
++    account_id = _get_account_id(account_email) if account_email else None
+     synced = 0
+     now = datetime.now()
+     time_min = (now - timedelta(days=7)).isoformat() + "Z"
+@@ -192,29 +230,47 @@ def sync_calendar(token: str | None = None) -> dict:
+             statements.append((
+                 """INSERT INTO calendar_events
+                    (google_event_id, title, description, location, start_time, end_time,
+-                    all_day, status, attendees, contact_ids)
+-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++                    all_day, status, attendees, contact_ids, account_id)
++                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(google_event_id) DO UPDATE SET
+                      title=excluded.title, description=excluded.description,
+                      location=excluded.location, start_time=excluded.start_time,
+                      end_time=excluded.end_time, status=excluded.status,
+                      attendees=excluded.attendees, contact_ids=excluded.contact_ids,
++                     account_id=excluded.account_id,
+                      synced_at=datetime('now')""",
+                 (event_id, title, description or None, location or None,
+                  start_time, end_time, 1 if all_day else 0, status,
+-                 attendees, contact_ids_str),
++                 attendees, contact_ids_str, account_id),
+             ))
+             synced += 1
+ 
+         if statements:
+             execute_many(statements)
+ 
+-        execute_many([(
+-            "INSERT OR REPLACE INTO soy_meta (key, value, updated_at) VALUES ('calendar_last_synced', datetime('now'), datetime('now'))",
+-            (),
+-        )])
++        # Update sync timestamps
++        meta_key = f"calendar_last_synced:{account_email}" if account_email else "calendar_last_synced"
++        execute_many([
++            (
++                "INSERT OR REPLACE INTO soy_meta (key, value, updated_at) VALUES (?, datetime('now'), datetime('now'))",
++                (meta_key,),
++            ),
++            (
++                "INSERT OR REPLACE INTO soy_meta (key, value, updated_at) VALUES ('calendar_last_synced', datetime('now'), datetime('now'))",
++                (),
++            ),
++        ])
+ 
+-        return {"synced": synced, "total_events": len(events)}
++        if account_email:
++            try:
++                execute_write(
++                    "UPDATE google_accounts SET last_synced_at = datetime('now') WHERE email = ?",
++                    (account_email,),
++                )
++            except Exception:
++                pass
++
++        return {"synced": synced, "total_events": len(events), "account": account_email}
+ 
+     except urllib.error.URLError as e:
+         print(f"Calendar sync failed: {e}", file=sys.stderr)
+@@ -277,9 +333,9 @@ def _parse_meeting_date(subject: str) -> str:
+     return None
+ 
+ 
+-def sync_transcripts(token: str | None = None) -> dict:
++def sync_transcripts(token: str | None = None, account_email: str | None = None) -> dict:
+     """Scan for new Gemini meeting transcripts and fetch Google Docs."""
+-    token = token or get_valid_token()
++    token = token or get_valid_token(email=account_email)
+     if not token:
+         return {"error": "Not authenticated with Google."}
+ 
+@@ -302,7 +358,7 @@ def sync_transcripts(token: str | None = None) -> dict:
+                 "INSERT OR REPLACE INTO soy_meta (key, value, updated_at) VALUES ('transcripts_last_scanned', datetime('now'), datetime('now'))",
+                 (),
+             )])
+-            return {"imported": 0, "errors": []}
++            return {"imported": 0, "errors": [], "account": account_email}
+ 
+         for email in gemini_emails:
+             email_id = email["id"]
+@@ -358,7 +414,7 @@ def sync_transcripts(token: str | None = None) -> dict:
+                 )
+                 calendar_event_id = cal_rows[0]["id"] if cal_rows else None
+ 
+-                # Insert transcript and get its ID directly
++                # Insert transcript
+                 transcript_id = execute_write(
+                     """INSERT INTO transcripts
+                        (title, source, raw_text, occurred_at, source_email_id,
+@@ -395,24 +451,89 @@ def sync_transcripts(token: str | None = None) -> dict:
+             (),
+         )])
+ 
+-        return {"imported": imported, "errors": errors}
++        return {"imported": imported, "errors": errors, "account": account_email}
+ 
+     except urllib.error.URLError as e:
+         print(f"Transcript sync failed: {e}", file=sys.stderr)
+         return {"error": str(e), "imported": imported}
+ 
+ 
++def sync_all_accounts() -> dict:
++    """Sync Gmail, Calendar, and transcripts for all connected accounts.
++
++    Falls back to legacy single-account behavior if no accounts are registered.
++    """
++    # Auto-migrate legacy token first
++    migrate_legacy_token()
++
++    accounts = list_accounts()
++
++    if not accounts:
++        # Legacy fallback — try single token
++        token = get_valid_token()
++        if not token:
++            return {"status": "skipped", "reason": "Google not connected"}
++
++        results = {}
++        for name, fn in [("gmail", sync_gmail), ("calendar", sync_calendar), ("transcripts", sync_transcripts)]:
++            try:
++                results[name] = fn(token)
++            except Exception as e:
++                results[name] = {"error": str(e)}
++
++        return {"status": "ok", "accounts": 0, "results": results}
++
++    # Multi-account sync
++    all_results = {}
++    for account_email in accounts:
++        token = get_valid_token(email=account_email)
++        if not token:
++            all_results[account_email] = {"error": "Token invalid or expired"}
++            continue
++
++        account_results = {}
++        for name, fn in [("gmail", sync_gmail), ("calendar", sync_calendar), ("transcripts", sync_transcripts)]:
++            try:
++                account_results[name] = fn(token, account_email=account_email)
++            except Exception as e:
++                account_results[name] = {"error": str(e)}
++
++        all_results[account_email] = account_results
++
++    return {"status": "ok", "accounts": len(accounts), "results": all_results}
++
++
+ def sync_service(service: str) -> dict:
+-    """Sync a specific service. Used by auto-sync."""
+-    token = get_valid_token()
+-    if not token:
+-        return {"error": "Not authenticated."}
+-
+-    if service == "gmail":
+-        return sync_gmail(token)
+-    elif service == "calendar":
+-        return sync_calendar(token)
+-    elif service == "transcripts":
+-        return sync_transcripts(token)
+-    else:
++    """Sync a specific service across all accounts. Used by auto-sync."""
++    migrate_legacy_token()
++    accounts = list_accounts()
++
++    fn_map = {
++        "gmail": sync_gmail,
++        "calendar": sync_calendar,
++        "transcripts": sync_transcripts,
++    }
++
++    if service not in fn_map:
+         return {"error": f"Unknown service: {service}"}
++
++    fn = fn_map[service]
++
++    if not accounts:
++        token = get_valid_token()
++        if not token:
++            return {"error": "Not authenticated."}
++        return fn(token)
++
++    results = {}
++    for account_email in accounts:
++        token = get_valid_token(email=account_email)
++        if not token:
++            results[account_email] = {"error": "Token invalid"}
++            continue
++        try:
++            results[account_email] = fn(token, account_email=account_email)
++        except Exception as e:
++            results[account_email] = {"error": str(e)}
++
++    return {"accounts": len(accounts), "results": results}
+diff --git a/mcp-server/src/software_of_you/migrations/015_multi_google_accounts.sql b/mcp-server/src/software_of_you/migrations/015_multi_google_accounts.sql
+new file mode 100644
+index 0000000..b8eff9b
+--- /dev/null
++++ b/mcp-server/src/software_of_you/migrations/015_multi_google_accounts.sql
+@@ -0,0 +1,35 @@
++-- Multi-Google-Account Support
++-- Adds google_accounts table and account_id tracking on emails/calendar_events.
++-- All statements are idempotent.
++
++-- ═══════════════════════════════════════════════════════════════
++-- google_accounts: Track connected Google accounts
++-- ═══════════════════════════════════════════════════════════════
++
++CREATE TABLE IF NOT EXISTS google_accounts (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    email TEXT NOT NULL UNIQUE,
++    display_name TEXT,
++    token_file TEXT NOT NULL,
++    is_primary INTEGER NOT NULL DEFAULT 0,
++    connected_at TEXT NOT NULL DEFAULT (datetime('now')),
++    last_synced_at TEXT,
++    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'revoked'))
++);
++
++-- ═══════════════════════════════════════════════════════════════
++-- Add account_id to emails and calendar_events
++-- ═══════════════════════════════════════════════════════════════
++
++-- SQLite ALTER TABLE ADD COLUMN is idempotent-safe via IF NOT EXISTS workaround:
++-- If column already exists, the ALTER will fail silently (stderr suppressed by bootstrap.sh).
++
++ALTER TABLE emails ADD COLUMN account_id INTEGER REFERENCES google_accounts(id);
++ALTER TABLE calendar_events ADD COLUMN account_id INTEGER REFERENCES google_accounts(id);
++
++-- ═══════════════════════════════════════════════════════════════
++-- Indexes for efficient per-account queries
++-- ═══════════════════════════════════════════════════════════════
++
++CREATE INDEX IF NOT EXISTS idx_emails_account ON emails(account_id);
++CREATE INDEX IF NOT EXISTS idx_events_account ON calendar_events(account_id);
+diff --git a/mcp-server/src/software_of_you/migrations/016_multi_account_views.sql b/mcp-server/src/software_of_you/migrations/016_multi_account_views.sql
+new file mode 100644
+index 0000000..069750c
+--- /dev/null
++++ b/mcp-server/src/software_of_you/migrations/016_multi_account_views.sql
+@@ -0,0 +1,351 @@
++-- Multi-Account Computed Views Update
++-- Re-creates discovery and nudge views to exclude connected Google account emails.
++-- All statements are idempotent (DROP + CREATE).
++
++-- ═══════════════════════════════════════════════════════════════
++-- v_discovery_candidates: Exclude connected Google accounts
++-- ═══════════════════════════════════════════════════════════════
++
++DROP VIEW IF EXISTS v_discovery_candidates;
++CREATE VIEW IF NOT EXISTS v_discovery_candidates AS
++SELECT
++  e.from_address,
++  e.from_name,
++  COUNT(*) AS email_count,
++  COUNT(DISTINCT e.thread_id) AS thread_count,
++  MAX(e.received_at) AS last_email,
++  MIN(e.received_at) AS first_email,
++  CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) AS days_since_last,
++
++  -- Relevance score components
++  MIN(COUNT(*), 10) AS volume_score,
++  MIN(COUNT(DISTINCT e.thread_id) * 2, 10) AS thread_score,
++  CASE
++    WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 7 THEN 5
++    WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 14 THEN 3
++    WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 30 THEN 1
++    ELSE 0
++  END AS recency_score,
++
++  -- Total relevance score
++  MIN(COUNT(*), 10)
++    + MIN(COUNT(DISTINCT e.thread_id) * 2, 10)
++    + CASE
++        WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 7 THEN 5
++        WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 14 THEN 3
++        WHEN CAST(julianday('now') - julianday(MAX(e.received_at)) AS INTEGER) <= 30 THEN 1
++        ELSE 0
++      END AS relevance_score
++
++FROM emails e
++WHERE e.direction = 'inbound'
++  AND e.contact_id IS NULL
++  AND e.from_address NOT LIKE '%noreply%'
++  AND e.from_address NOT LIKE '%no-reply%'
++  AND e.from_address NOT LIKE '%do-not-reply%'
++  AND e.from_address NOT LIKE '%notifications%'
++  AND e.from_address NOT LIKE '%newsletter%'
++  AND e.from_address NOT LIKE '%digest%'
++  AND e.from_address NOT LIKE '%automated%'
++  AND e.from_address NOT LIKE '%mailer-daemon%'
++  AND e.from_address NOT LIKE '%calendar-notification%'
++  AND e.from_address NOT LIKE '%@calendar.google.com'
++  AND e.from_address NOT LIKE '%@docs.google.com'
++  AND e.from_address NOT LIKE '%@github.com'
++  AND e.from_address NOT LIKE '%@linkedin.com'
++  AND e.from_address NOT LIKE '%@slack.com'
++  AND e.from_address NOT IN (
++    SELECT email FROM contacts WHERE email IS NOT NULL AND email != ''
++  )
++  AND e.from_address NOT IN (
++    SELECT email FROM google_accounts WHERE status = 'active'
++  )
++GROUP BY e.from_address
++HAVING email_count >= 2
++ORDER BY relevance_score DESC, last_email DESC;
++
++
++-- ═══════════════════════════════════════════════════════════════
++-- v_nudge_items: Re-create with updated untracked_contact segment
++-- ═══════════════════════════════════════════════════════════════
++
++DROP VIEW IF EXISTS v_nudge_items;
++CREATE VIEW IF NOT EXISTS v_nudge_items AS
++
++-- Overdue follow-ups (URGENT)
++SELECT
++  'follow_up' AS nudge_type,
++  f.id AS entity_id,
++  'urgent' AS tier,
++  c.name AS entity_name,
++  c.id AS contact_id,
++  NULL AS project_id,
++  f.reason AS description,
++  f.due_date AS relevant_date,
++  CAST(julianday('now') - julianday(f.due_date) AS INTEGER) AS days_value,
++  c.company AS extra_context,
++  'clock' AS icon
++FROM follow_ups f
++JOIN contacts c ON c.id = f.contact_id
++WHERE f.status = 'pending' AND f.due_date < date('now')
++
++UNION ALL
++
++-- Overdue commitments (URGENT)
++SELECT
++  'commitment',
++  com.id,
++  'urgent',
++  CASE WHEN com.is_user_commitment = 1 THEN 'You' ELSE COALESCE(c.name, 'Unknown') END,
++  com.owner_contact_id,
++  NULL,
++  com.description,
++  com.deadline_date,
++  CAST(julianday('now') - julianday(com.deadline_date) AS INTEGER),
++  t.title,
++  'target'
++FROM commitments com
++LEFT JOIN contacts c ON c.id = com.owner_contact_id
++LEFT JOIN transcripts t ON t.id = com.transcript_id
++WHERE com.status IN ('open', 'overdue') AND com.deadline_date < date('now')
++
++UNION ALL
++
++-- Overdue tasks (URGENT)
++SELECT
++  'task',
++  tk.id,
++  'urgent',
++  tk.title,
++  NULL,
++  tk.project_id,
++  p.name,
++  tk.due_date,
++  CAST(julianday('now') - julianday(tk.due_date) AS INTEGER),
++  p.name,
++  'check-square'
++FROM tasks tk
++JOIN projects p ON p.id = tk.project_id
++WHERE tk.status NOT IN ('done') AND tk.due_date < date('now')
++
++UNION ALL
++
++-- Follow-ups due soon (SOON — within 3 days)
++SELECT
++  'follow_up',
++  f.id,
++  'soon',
++  c.name,
++  c.id,
++  NULL,
++  f.reason,
++  f.due_date,
++  CAST(julianday(f.due_date) - julianday('now') AS INTEGER),
++  c.company,
++  'clock'
++FROM follow_ups f
++JOIN contacts c ON c.id = f.contact_id
++WHERE f.status = 'pending'
++  AND f.due_date BETWEEN date('now') AND date('now', '+3 days')
++
++UNION ALL
++
++-- Commitments due soon (SOON — within 3 days)
++SELECT
++  'commitment',
++  com.id,
++  'soon',
++  CASE WHEN com.is_user_commitment = 1 THEN 'You' ELSE COALESCE(c.name, 'Unknown') END,
++  com.owner_contact_id,
++  NULL,
++  com.description,
++  com.deadline_date,
++  CAST(julianday(com.deadline_date) - julianday('now') AS INTEGER),
++  t.title,
++  'target'
++FROM commitments com
++LEFT JOIN contacts c ON c.id = com.owner_contact_id
++LEFT JOIN transcripts t ON t.id = com.transcript_id
++WHERE com.status = 'open'
++  AND com.deadline_date BETWEEN date('now') AND date('now', '+3 days')
++
++UNION ALL
++
++-- Tasks due soon (SOON — within 3 days)
++SELECT
++  'task',
++  tk.id,
++  'soon',
++  tk.title,
++  NULL,
++  tk.project_id,
++  p.name,
++  tk.due_date,
++  CAST(julianday(tk.due_date) - julianday('now') AS INTEGER),
++  p.name,
++  'check-square'
++FROM tasks tk
++JOIN projects p ON p.id = tk.project_id
++WHERE tk.status NOT IN ('done')
++  AND tk.due_date BETWEEN date('now') AND date('now', '+3 days')
++
++UNION ALL
++
++-- Projects approaching target date (SOON — within 7 days)
++SELECT
++  'project',
++  p.id,
++  'soon',
++  p.name,
++  NULL,
++  p.id,
++  CAST((SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status != 'done') AS TEXT) || ' open tasks',
++  p.target_date,
++  CAST(julianday(p.target_date) - julianday('now') AS INTEGER),
++  NULL,
++  'folder'
++FROM projects p
++WHERE p.status = 'active'
++  AND p.target_date BETWEEN date('now') AND date('now', '+7 days')
++
++UNION ALL
++
++-- Contacts going cold (AWARENESS — 30+ days silent)
++SELECT
++  'cold_contact',
++  c.id,
++  'awareness',
++  c.name,
++  c.id,
++  NULL,
++  c.company,
++  (SELECT MAX(ts) FROM (
++    SELECT MAX(occurred_at) AS ts FROM contact_interactions WHERE contact_id = c.id
++    UNION ALL SELECT MAX(received_at) FROM emails WHERE contact_id = c.id
++    UNION ALL SELECT MAX(t2.occurred_at) FROM transcripts t2
++      JOIN transcript_participants tp ON tp.transcript_id = t2.id WHERE tp.contact_id = c.id
++  )),
++  CAST(julianday('now') - julianday(
++    (SELECT MAX(ts) FROM (
++      SELECT MAX(occurred_at) AS ts FROM contact_interactions WHERE contact_id = c.id
++      UNION ALL SELECT MAX(received_at) FROM emails WHERE contact_id = c.id
++      UNION ALL SELECT MAX(t2.occurred_at) FROM transcripts t2
++        JOIN transcript_participants tp ON tp.transcript_id = t2.id WHERE tp.contact_id = c.id
++    ))
++  ) AS INTEGER),
++  c.email,
++  'users'
++FROM contacts c
++WHERE c.status = 'active'
++  AND (
++    -- Either last activity was 30+ days ago
++    (SELECT MAX(ts) FROM (
++      SELECT MAX(occurred_at) AS ts FROM contact_interactions WHERE contact_id = c.id
++      UNION ALL SELECT MAX(received_at) FROM emails WHERE contact_id = c.id
++      UNION ALL SELECT MAX(t2.occurred_at) FROM transcripts t2
++        JOIN transcript_participants tp ON tp.transcript_id = t2.id WHERE tp.contact_id = c.id
++    )) < datetime('now', '-30 days')
++    -- Or contact has zero activity and was added 30+ days ago
++    OR (
++      (SELECT MAX(ts) FROM (
++        SELECT MAX(occurred_at) AS ts FROM contact_interactions WHERE contact_id = c.id
++        UNION ALL SELECT MAX(received_at) FROM emails WHERE contact_id = c.id
++        UNION ALL SELECT MAX(t2.occurred_at) FROM transcripts t2
++          JOIN transcript_participants tp ON tp.transcript_id = t2.id WHERE tp.contact_id = c.id
++      )) IS NULL
++      AND julianday('now') - julianday(c.created_at) > 30
++    )
++  )
++
++UNION ALL
++
++-- Stale projects (AWARENESS — 14+ days no activity)
++SELECT
++  'stale_project',
++  p.id,
++  'awareness',
++  p.name,
++  NULL,
++  p.id,
++  p.status,
++  MAX(al.created_at),
++  CAST(julianday('now') - julianday(COALESCE(MAX(al.created_at), p.created_at)) AS INTEGER),
++  p.target_date,
++  'folder'
++FROM projects p
++LEFT JOIN activity_log al ON al.entity_type = 'project' AND al.entity_id = p.id
++WHERE p.status IN ('active', 'planning')
++GROUP BY p.id
++HAVING CAST(julianday('now') - julianday(COALESCE(MAX(al.created_at), p.created_at)) AS INTEGER) > 14
++
++UNION ALL
++
++-- Decisions pending outcome (AWARENESS — 90+ days old)
++SELECT
++  'decision',
++  d.id,
++  'awareness',
++  d.title,
++  d.contact_id,
++  d.project_id,
++  'No outcome recorded',
++  d.decided_at,
++  CAST(julianday('now') - julianday(d.decided_at) AS INTEGER),
++  NULL,
++  'git-branch'
++FROM decisions d
++WHERE d.status = 'decided' AND d.outcome IS NULL
++  AND julianday('now') - julianday(d.decided_at) > 90
++
++UNION ALL
++
++-- Untracked frequent contacts (AWARENESS — 5+ emails, not in CRM, not a connected account)
++SELECT
++  'untracked_contact',
++  NULL,
++  'awareness',
++  COALESCE(e.from_name, e.from_address),
++  NULL,
++  NULL,
++  e.from_address,
++  MAX(e.received_at),
++  COUNT(*),
++  CAST(COUNT(DISTINCT e.thread_id) AS TEXT) || ' threads',
++  'user-plus'
++FROM emails e
++WHERE e.direction = 'inbound'
++  AND e.contact_id IS NULL
++  AND e.from_address NOT LIKE '%noreply%'
++  AND e.from_address NOT LIKE '%no-reply%'
++  AND e.from_address NOT LIKE '%do-not-reply%'
++  AND e.from_address NOT LIKE '%notifications%'
++  AND e.from_address NOT LIKE '%newsletter%'
++  AND e.from_address NOT LIKE '%digest%'
++  AND e.from_address NOT LIKE '%automated%'
++  AND e.from_address NOT LIKE '%mailer-daemon%'
++  AND e.from_address NOT LIKE '%@calendar.google.com'
++  AND e.from_address NOT LIKE '%@docs.google.com'
++  AND e.from_address NOT LIKE '%@github.com'
++  AND e.from_address NOT LIKE '%@linkedin.com'
++  AND e.from_address NOT LIKE '%@slack.com'
++  AND e.from_address NOT IN (
++    SELECT email FROM contacts WHERE email IS NOT NULL AND email != ''
++  )
++  AND e.from_address NOT IN (
++    SELECT email FROM google_accounts WHERE status = 'active'
++  )
++GROUP BY e.from_address
++HAVING COUNT(*) >= 5;
++
++
++-- ═══════════════════════════════════════════════════════════════
++-- v_nudge_summary: Re-create (depends on v_nudge_items)
++-- ═══════════════════════════════════════════════════════════════
++
++DROP VIEW IF EXISTS v_nudge_summary;
++CREATE VIEW IF NOT EXISTS v_nudge_summary AS
++SELECT
++  tier,
++  COUNT(*) AS count
++FROM v_nudge_items
++GROUP BY tier;
+diff --git a/shared/bootstrap.sh b/shared/bootstrap.sh
+index d7cb171..ccd9c44 100755
+--- a/shared/bootstrap.sh
++++ b/shared/bootstrap.sh
+@@ -23,6 +23,7 @@ OUTPUT_LINK="$PLUGIN_ROOT/output"
+ 
+ # Create directories
+ mkdir -p "$DATA_HOME"
++mkdir -p "$DATA_HOME/tokens"
+ mkdir -p "$OUTPUT_REAL"
+ mkdir -p "$PLUGIN_ROOT/data"
+ mkdir -p "$PLUGIN_ROOT/config"
+diff --git a/shared/google_auth.py b/shared/google_auth.py
+index aaf8e59..24e0f82 100644
+--- a/shared/google_auth.py
++++ b/shared/google_auth.py
+@@ -5,18 +5,24 @@ Handles the full OAuth flow for Google APIs (Gmail, Calendar, etc.)
+ using the "Desktop app" OAuth type. No pip install required — uses
+ only Python standard library + urllib for token exchange.
+ 
++Supports multiple Google accounts. Tokens are stored per-account in
++~/.local/share/software-of-you/tokens/<email>.json.
++
+ Usage:
+-    # Start auth flow (opens browser, saves token)
+-    python3 google_auth.py auth --scopes gmail.readonly,gmail.send,calendar.readonly,calendar.events
++    # Start auth flow (opens browser, saves token, registers account)
++    python3 google_auth.py auth
+ 
+-    # Get a valid access token (refreshes if expired)
+-    python3 google_auth.py token
++    # Get a valid access token (default or specific account)
++    python3 google_auth.py token [email]
+ 
+-    # Check if authenticated
++    # Check status (all accounts or specific)
+     python3 google_auth.py status
+ 
+-    # Revoke access
+-    python3 google_auth.py revoke
++    # List connected accounts
++    python3 google_auth.py accounts
++
++    # Revoke access (specific account or legacy)
++    python3 google_auth.py revoke [email]
+ """
+ 
+ import os
+@@ -26,6 +32,7 @@ import time
+ import hashlib
+ import base64
+ import secrets
++import sqlite3
+ import webbrowser
+ import urllib.request
+ import urllib.parse
+@@ -40,19 +47,16 @@ PLUGIN_ROOT = os.environ.get(
+ CONFIG_DIR = os.path.join(PLUGIN_ROOT, "config")
+ CREDENTIALS_FILE = os.path.join(CONFIG_DIR, "google_credentials.json")
+ 
+-# Token lives in user data directory (survives repo re-downloads)
++# User data directory (survives repo re-downloads)
+ DATA_HOME = os.environ.get(
+     "XDG_DATA_HOME",
+     os.path.join(os.path.expanduser("~"), ".local", "share"),
+ )
+ USER_DATA_DIR = os.path.join(DATA_HOME, "software-of-you")
+-TOKEN_FILE = os.path.join(USER_DATA_DIR, "google_token.json")
++TOKENS_DIR = os.path.join(USER_DATA_DIR, "tokens")
++LEGACY_TOKEN_FILE = os.path.join(USER_DATA_DIR, "google_token.json")
+ 
+-# Fall back to config/ if token exists there (pre-migration)
+-_LEGACY_TOKEN = os.path.join(CONFIG_DIR, "google_token.json")
+-if os.path.exists(_LEGACY_TOKEN) and not os.path.islink(_LEGACY_TOKEN) and not os.path.exists(TOKEN_FILE):
+-    os.makedirs(USER_DATA_DIR, exist_ok=True)
+-    os.rename(_LEGACY_TOKEN, TOKEN_FILE)
++DB_PATH = os.path.join(PLUGIN_ROOT, "data", "soy.db")
+ 
+ # Embedded OAuth credentials (Desktop app — not secret per Google's design)
+ DEFAULT_CREDENTIALS = {
+@@ -77,6 +81,19 @@ TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+ REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke"
+ 
+ 
++# ── Token file helpers ────────────────────────────────────────────────
++
++
++def _email_to_filename(email):
++    """Convert email to a safe filename: foo@bar.com → foo_bar.com.json"""
++    return email.replace("@", "_") + ".json"
++
++
++def _token_path_for(email):
++    """Get the token file path for a specific account email."""
++    return os.path.join(TOKENS_DIR, _email_to_filename(email))
++
++
+ def load_credentials():
+     """Load OAuth client credentials. Config file overrides embedded defaults."""
+     if os.path.exists(CREDENTIALS_FILE):
+@@ -85,26 +102,42 @@ def load_credentials():
+         if "installed" in data:
+             data = data["installed"]
+         if "client_id" in data:
+-            # Merge with defaults to fill in any missing fields (e.g. client_secret)
+             merged = dict(DEFAULT_CREDENTIALS)
+             merged.update(data)
+             return merged
+     return dict(DEFAULT_CREDENTIALS)
+ 
+ 
+-def load_token():
+-    """Load saved token from disk."""
+-    if not os.path.exists(TOKEN_FILE):
++def load_token(email=None):
++    """Load saved token from disk.
++
++    If email given, load from tokens/<email>.json.
++    If None, try legacy path (google_token.json).
++    """
++    if email:
++        path = _token_path_for(email)
++    else:
++        path = LEGACY_TOKEN_FILE
++    if not os.path.exists(path):
+         return None
+-    with open(TOKEN_FILE, "r") as f:
++    with open(path, "r") as f:
+         return json.load(f)
+ 
+ 
+-def save_token(token_data):
+-    """Save token to disk."""
+-    os.makedirs(CONFIG_DIR, exist_ok=True)
++def save_token(token_data, email=None):
++    """Save token to disk.
++
++    If email given, save to tokens/<email>.json.
++    If None, save to legacy path.
++    """
++    if email:
++        os.makedirs(TOKENS_DIR, exist_ok=True)
++        path = _token_path_for(email)
++    else:
++        os.makedirs(USER_DATA_DIR, exist_ok=True)
++        path = LEGACY_TOKEN_FILE
+     token_data["saved_at"] = int(time.time())
+-    with open(TOKEN_FILE, "w") as f:
++    with open(path, "w") as f:
+         json.dump(token_data, f, indent=2)
+ 
+ 
+@@ -114,11 +147,10 @@ def is_token_expired(token_data):
+         return True
+     saved_at = token_data.get("saved_at", 0)
+     expires_in = token_data.get("expires_in", 3600)
+-    # Add 60-second buffer
+     return time.time() > (saved_at + expires_in - 60)
+ 
+ 
+-def refresh_access_token(token_data, credentials):
++def refresh_access_token(token_data, credentials, email=None):
+     """Use refresh token to get a new access token."""
+     refresh_token = token_data.get("refresh_token")
+     if not refresh_token:
+@@ -135,33 +167,227 @@ def refresh_access_token(token_data, credentials):
+         req = urllib.request.Request(TOKEN_ENDPOINT, data=params)
+         with urllib.request.urlopen(req, timeout=10) as resp:
+             new_data = json.loads(resp.read().decode())
+-        # Preserve the refresh token (not always returned on refresh)
+         new_data["refresh_token"] = refresh_token
+-        save_token(new_data)
++        save_token(new_data, email=email)
+         return new_data
+     except urllib.error.URLError as e:
+         print(json.dumps({"error": f"Token refresh failed: {e}"}))
+         return None
+ 
+ 
+-def get_valid_token():
+-    """Get a valid access token, refreshing if needed."""
++def get_valid_token(email=None):
++    """Get a valid access token, refreshing if needed.
++
++    If email given, use that account's token.
++    If None, try to find any valid token (checks accounts first, then legacy).
++    """
+     credentials = load_credentials()
+     if not credentials:
+         return None
+ 
+-    token_data = load_token()
++    if email:
++        token_data = load_token(email=email)
++    else:
++        # Try accounts first, fall back to legacy
++        accounts = list_accounts()
++        if accounts:
++            # Use the primary account, or the first one
++            email = accounts[0]
++            for acc in accounts:
++                if _is_primary(acc):
++                    email = acc
++                    break
++            token_data = load_token(email=email)
++        else:
++            token_data = load_token()
++
+     if not token_data:
+         return None
+ 
+     if is_token_expired(token_data):
+-        token_data = refresh_access_token(token_data, credentials)
++        token_data = refresh_access_token(token_data, credentials, email=email)
+ 
+     if token_data:
+         return token_data.get("access_token")
+     return None
+ 
+ 
++def _is_primary(email):
++    """Check if an account is marked as primary in the DB."""
++    try:
++        conn = sqlite3.connect(DB_PATH)
++        row = conn.execute(
++            "SELECT is_primary FROM google_accounts WHERE email = ?", (email,)
++        ).fetchone()
++        conn.close()
++        return row and row[0] == 1
++    except Exception:
++        return False
++
++
++# ── Account management ────────────────────────────────────────────────
++
++
++def list_accounts():
++    """Return list of account emails from the tokens/ directory."""
++    if not os.path.isdir(TOKENS_DIR):
++        return []
++    accounts = []
++    for fname in sorted(os.listdir(TOKENS_DIR)):
++        if fname.endswith(".json"):
++            # Reverse _email_to_filename: foo_bar.com.json → foo@bar.com
++            email = fname[:-5]  # strip .json
++            # Find the last underscore that precedes a dot (the @ position)
++            # e.g., "j.alex.somerville_gmail.com" → "j.alex.somerville@gmail.com"
++            # Find the rightmost underscore before a domain-like suffix
++            parts = email.rsplit("_", 1)
++            if len(parts) == 2 and "." in parts[1]:
++                email = parts[0] + "@" + parts[1]
++            accounts.append(email)
++    return accounts
++
++
++def _get_user_email(access_token):
++    """Get the authenticated user's email from the userinfo API."""
++    try:
++        req = urllib.request.Request(
++            "https://www.googleapis.com/oauth2/v2/userinfo",
++            headers={"Authorization": f"Bearer {access_token}"},
++        )
++        with urllib.request.urlopen(req, timeout=5) as resp:
++            info = json.loads(resp.read().decode())
++            return info.get("email"), info.get("name")
++    except urllib.error.URLError:
++        return None, None
++
++
++def _register_account_in_db(email, display_name, token_file, is_first=False):
++    """Register or update a Google account in the database."""
++    try:
++        conn = sqlite3.connect(DB_PATH)
++        conn.execute("PRAGMA foreign_keys=ON")
++
++        # Check if account already exists
++        existing = conn.execute(
++            "SELECT id FROM google_accounts WHERE email = ?", (email,)
++        ).fetchone()
++
++        if existing:
++            conn.execute(
++                """UPDATE google_accounts
++                   SET token_file = ?, display_name = ?, status = 'active',
++                       last_synced_at = datetime('now')
++                   WHERE email = ?""",
++                (token_file, display_name, email),
++            )
++        else:
++            # If this is the first account (or no accounts exist), mark as primary
++            count = conn.execute("SELECT COUNT(*) FROM google_accounts").fetchone()[0]
++            is_primary = 1 if (is_first or count == 0) else 0
++
++            conn.execute(
++                """INSERT INTO google_accounts (email, display_name, token_file, is_primary, status)
++                   VALUES (?, ?, ?, ?, 'active')""",
++                (email, display_name, token_file, is_primary),
++            )
++
++        conn.commit()
++        conn.close()
++    except Exception as e:
++        print(json.dumps({"warning": f"Could not register account in DB: {e}"}),
++              file=sys.stderr)
++
++
++def migrate_legacy_token():
++    """Migrate legacy google_token.json to per-account tokens/ directory.
++
++    1. Load the legacy token
++    2. Call userinfo to discover the email
++    3. Move to tokens/<email>.json
++    4. Register in google_accounts table
++    5. Backfill existing emails/calendar_events with account_id
++    """
++    if not os.path.exists(LEGACY_TOKEN_FILE):
++        return None
++
++    token_data = load_token()
++    if not token_data:
++        return None
++
++    # Get a valid access token to identify the account
++    credentials = load_credentials()
++    if is_token_expired(token_data):
++        token_data = refresh_access_token(token_data, credentials)
++        if not token_data:
++            return None
++
++    access_token = token_data.get("access_token")
++    if not access_token:
++        return None
++
++    email, display_name = _get_user_email(access_token)
++    if not email:
++        return None
++
++    # Check if already migrated (token file exists in tokens/)
++    new_path = _token_path_for(email)
++    if os.path.exists(new_path):
++        # Already migrated, just clean up legacy
++        os.remove(LEGACY_TOKEN_FILE)
++        return email
++
++    # Save to new location
++    save_token(token_data, email=email)
++
++    # Remove legacy file
++    os.remove(LEGACY_TOKEN_FILE)
++
++    # Register in DB
++    token_filename = _email_to_filename(email)
++    _register_account_in_db(email, display_name, token_filename, is_first=True)
++
++    # Backfill existing data with account_id
++    _backfill_account_id(email)
++
++    return email
++
++
++def _backfill_account_id(email):
++    """Set account_id on existing emails and calendar_events for a newly registered account."""
++    try:
++        conn = sqlite3.connect(DB_PATH)
++        conn.execute("PRAGMA foreign_keys=ON")
++
++        row = conn.execute(
++            "SELECT id FROM google_accounts WHERE email = ?", (email,)
++        ).fetchone()
++        if not row:
++            conn.close()
++            return
++
++        account_id = row[0]
++
++        # Backfill emails that have no account_id
++        conn.execute(
++            "UPDATE emails SET account_id = ? WHERE account_id IS NULL",
++            (account_id,),
++        )
++
++        # Backfill calendar_events that have no account_id
++        conn.execute(
++            "UPDATE calendar_events SET account_id = ? WHERE account_id IS NULL",
++            (account_id,),
++        )
++
++        conn.commit()
++        conn.close()
++    except Exception:
++        pass
++
++
++# ── Auth flow ─────────────────────────────────────────────────────────
++
++
+ class OAuthCallbackHandler(BaseHTTPRequestHandler):
+     """Handle the OAuth redirect callback."""
+ 
+@@ -198,7 +424,11 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
+ 
+ 
+ def run_auth_flow(scopes=None):
+-    """Run the full OAuth authorization flow."""
++    """Run the full OAuth authorization flow.
++
++    After token exchange, auto-detects the account email,
++    saves to per-account token file, and registers in DB.
++    """
+     credentials = load_credentials()
+ 
+     if scopes is None:
+@@ -225,7 +455,7 @@ def run_auth_flow(scopes=None):
+ 
+     # Start local server to catch the redirect
+     server = HTTPServer(("localhost", REDIRECT_PORT), OAuthCallbackHandler)
+-    server.timeout = 120  # 2-minute timeout
++    server.timeout = 120
+ 
+     # Open browser
+     webbrowser.open(auth_url)
+@@ -257,54 +487,115 @@ def run_auth_flow(scopes=None):
+         req = urllib.request.Request(TOKEN_ENDPOINT, data=token_params)
+         with urllib.request.urlopen(req, timeout=10) as resp:
+             token_data = json.loads(resp.read().decode())
+-        save_token(token_data)
+-        print(json.dumps({
+-            "success": True,
+-            "message": "Google account connected successfully.",
+-            "scopes": scopes,
+-        }))
++
++        # Auto-detect account email
++        access_token = token_data.get("access_token")
++        email, display_name = _get_user_email(access_token) if access_token else (None, None)
++
++        if email:
++            # Save to per-account token file
++            save_token(token_data, email=email)
++            # Register in DB
++            token_filename = _email_to_filename(email)
++            _register_account_in_db(email, display_name, token_filename)
++
++            print(json.dumps({
++                "success": True,
++                "message": f"Google account connected: {email}",
++                "email": email,
++                "display_name": display_name,
++                "scopes": scopes,
++            }))
++        else:
++            # Fallback: save to legacy path if we can't detect email
++            save_token(token_data)
++            print(json.dumps({
++                "success": True,
++                "message": "Google account connected successfully.",
++                "scopes": scopes,
++            }))
++
+     except urllib.error.URLError as e:
+         print(json.dumps({"error": f"Token exchange failed: {e}"}))
+         sys.exit(1)
+ 
+ 
+-def check_status():
+-    """Check current authentication status."""
+-    credentials = load_credentials()
+-    token_data = load_token()
++# ── Status / Revoke ───────────────────────────────────────────────────
+ 
+-    status = {
+-        "credentials_configured": credentials is not None,
+-        "authenticated": False,
+-        "token_expired": True,
+-        "email": None,
+-    }
+ 
+-    if token_data:
+-        status["authenticated"] = True
+-        status["token_expired"] = is_token_expired(token_data)
+-
+-        # Try to get user email
+-        access_token = get_valid_token()
+-        if access_token:
+-            try:
+-                req = urllib.request.Request(
+-                    "https://www.googleapis.com/oauth2/v2/userinfo",
+-                    headers={"Authorization": f"Bearer {access_token}"},
+-                )
+-                with urllib.request.urlopen(req, timeout=5) as resp:
+-                    info = json.loads(resp.read().decode())
+-                    status["email"] = info.get("email")
++def check_status():
++    """Check current authentication status for all accounts."""
++    accounts = list_accounts()
++
++    if accounts:
++        # Multi-account mode
++        account_statuses = []
++        for email in accounts:
++            token_data = load_token(email=email)
++            status = {
++                "email": email,
++                "authenticated": token_data is not None,
++                "token_expired": is_token_expired(token_data) if token_data else True,
++                "primary": _is_primary(email),
++            }
++
++            # Try to validate with a quick token refresh
++            if token_data and status["token_expired"]:
++                credentials = load_credentials()
++                refreshed = refresh_access_token(token_data, credentials, email=email)
++                if refreshed:
+                     status["token_expired"] = False
+-            except urllib.error.URLError:
+-                pass
+ 
+-    print(json.dumps(status))
++            account_statuses.append(status)
+ 
++        print(json.dumps({
++            "credentials_configured": True,
++            "multi_account": True,
++            "accounts": account_statuses,
++        }))
++    else:
++        # Legacy single-token mode or no accounts
++        credentials = load_credentials()
++        token_data = load_token()
++
++        status = {
++            "credentials_configured": credentials is not None,
++            "authenticated": False,
++            "token_expired": True,
++            "email": None,
++            "multi_account": False,
++        }
++
++        if token_data:
++            status["authenticated"] = True
++            status["token_expired"] = is_token_expired(token_data)
++
++            access_token = get_valid_token()
++            if access_token:
++                try:
++                    req = urllib.request.Request(
++                        "https://www.googleapis.com/oauth2/v2/userinfo",
++                        headers={"Authorization": f"Bearer {access_token}"},
++                    )
++                    with urllib.request.urlopen(req, timeout=5) as resp:
++                        info = json.loads(resp.read().decode())
++                        status["email"] = info.get("email")
++                        status["token_expired"] = False
++                except urllib.error.URLError:
++                    pass
++
++        print(json.dumps(status))
++
++
++def revoke_token(email=None):
++    """Revoke access for a specific account or legacy token."""
++    if email:
++        token_data = load_token(email=email)
++        token_path = _token_path_for(email)
++    else:
++        token_data = load_token()
++        token_path = LEGACY_TOKEN_FILE
+ 
+-def revoke_token():
+-    """Revoke the current access token."""
+-    token_data = load_token()
+     if not token_data:
+         print(json.dumps({"message": "No token to revoke."}))
+         return
+@@ -316,23 +607,79 @@ def revoke_token():
+         req = urllib.request.Request(REVOKE_ENDPOINT, data=params)
+         urllib.request.urlopen(req, timeout=10)
+     except urllib.error.URLError:
+-        pass  # Revocation is best-effort
++        pass
+ 
+     # Remove local token file
+-    if os.path.exists(TOKEN_FILE):
+-        os.remove(TOKEN_FILE)
++    if os.path.exists(token_path):
++        os.remove(token_path)
++
++    # Update DB status
++    if email:
++        try:
++            conn = sqlite3.connect(DB_PATH)
++            conn.execute(
++                "UPDATE google_accounts SET status = 'revoked' WHERE email = ?",
++                (email,),
++            )
++            conn.commit()
++            conn.close()
++        except Exception:
++            pass
++
++    print(json.dumps({"message": f"Google access revoked{' for ' + email if email else ''}. Token removed."}))
++
++
++def cmd_accounts():
++    """List all connected accounts."""
++    accounts = list_accounts()
++    if not accounts:
++        # Check for legacy token
++        if os.path.exists(LEGACY_TOKEN_FILE):
++            print(json.dumps({
++                "accounts": [],
++                "legacy_token": True,
++                "message": "Legacy single-account token found. It will be auto-migrated on next use.",
++            }))
++        else:
++            print(json.dumps({"accounts": [], "message": "No Google accounts connected."}))
++        return
++
++    result = []
++    for email in accounts:
++        entry = {"email": email, "primary": _is_primary(email)}
++        # Check DB for more info
++        try:
++            conn = sqlite3.connect(DB_PATH)
++            row = conn.execute(
++                "SELECT display_name, status, last_synced_at FROM google_accounts WHERE email = ?",
++                (email,),
++            ).fetchone()
++            if row:
++                entry["display_name"] = row[0]
++                entry["status"] = row[1]
++                entry["last_synced_at"] = row[2]
++            conn.close()
++        except Exception:
++            pass
++        result.append(entry)
+ 
+-    print(json.dumps({"message": "Google access revoked. Token removed."}))
++    print(json.dumps({"accounts": result}))
++
++
++# ── Main ──────────────────────────────────────────────────────────────
+ 
+ 
+ def main():
+     if len(sys.argv) < 2:
+-        print(json.dumps({"error": "Usage: google_auth.py [auth|token|status|revoke]"}))
++        print(json.dumps({"error": "Usage: google_auth.py [auth|token|status|revoke|accounts] [email]"}))
+         sys.exit(1)
+ 
+     command = sys.argv[1]
+ 
+     if command == "auth":
++        # Auto-migrate legacy token before auth flow
++        migrate_legacy_token()
++
+         scopes = None
+         if len(sys.argv) > 3 and sys.argv[2] == "--scopes":
+             scope_names = sys.argv[3].split(",")
+@@ -343,7 +690,11 @@ def main():
+         run_auth_flow(scopes)
+ 
+     elif command == "token":
+-        token = get_valid_token()
++        # Auto-migrate legacy token on first use
++        migrate_legacy_token()
++
++        email = sys.argv[2] if len(sys.argv) > 2 else None
++        token = get_valid_token(email=email)
+         if token:
+             print(token)
+         else:
+@@ -351,10 +702,17 @@ def main():
+             sys.exit(1)
+ 
+     elif command == "status":
++        # Auto-migrate legacy token
++        migrate_legacy_token()
+         check_status()
+ 
+     elif command == "revoke":
+-        revoke_token()
++        email = sys.argv[2] if len(sys.argv) > 2 else None
++        revoke_token(email=email)
++
++    elif command == "accounts":
++        migrate_legacy_token()
++        cmd_accounts()
+ 
+     else:
+         print(json.dumps({"error": f"Unknown command: {command}"}))
+diff --git a/shared/scheduled_sync.sh b/shared/scheduled_sync.sh
+index ce90bd1..8112ca1 100755
+--- a/shared/scheduled_sync.sh
++++ b/shared/scheduled_sync.sh
+@@ -65,22 +65,10 @@ import json, os, sys
+ plugin_root = os.environ["CLAUDE_PLUGIN_ROOT"]
+ sys.path.insert(0, os.path.join(plugin_root, "mcp-server", "src"))
+ 
+-from software_of_you.google_auth import get_valid_token
+-from software_of_you.google_sync import sync_gmail, sync_calendar, sync_transcripts
+-
+-token = get_valid_token()
+-if not token:
+-    print(json.dumps({"status": "skipped", "reason": "Google not connected"}))
+-    sys.exit(0)
+-
+-results = {}
+-for name, fn in [("gmail", sync_gmail), ("calendar", sync_calendar), ("transcripts", sync_transcripts)]:
+-    try:
+-        results[name] = fn(token)
+-    except Exception as e:
+-        results[name] = {"error": str(e)}
+-
+-print(json.dumps({"status": "ok", "results": results}))
++from software_of_you.google_sync import sync_all_accounts
++
++result = sync_all_accounts()
++print(json.dumps(result))
+ ' 2>&1) || true
+ 
+ if [[ -z "${sync_result}" ]]; then
+diff --git a/shared/sync_transcripts.py b/shared/sync_transcripts.py
+index 109f457..abe08b7 100755
+--- a/shared/sync_transcripts.py
++++ b/shared/sync_transcripts.py
+@@ -37,16 +37,19 @@ DOC_LINK_RE = re.compile(r"https://docs\.google\.com/document/d/([a-zA-Z0-9_-]+)
+ # ── Helpers ──────────────────────────────────────────────────────────────
+ 
+ 
+-def _get_token():
+-    """Get a valid OAuth token via google_auth.py."""
++def _get_token(email=None):
++    """Get a valid OAuth token via google_auth.py.
++
++    If email given, get token for that specific account.
++    """
+     auth_script = os.path.join(PLUGIN_ROOT, "shared", "google_auth.py")
+     import subprocess
+ 
+-    result = subprocess.run(
+-        [sys.executable, auth_script, "token"],
+-        capture_output=True,
+-        text=True,
+-    )
++    cmd = [sys.executable, auth_script, "token"]
++    if email:
++        cmd.append(email)
++
++    result = subprocess.run(cmd, capture_output=True, text=True)
+     if result.returncode != 0:
+         return None
+     token = result.stdout.strip()
+@@ -56,6 +59,19 @@ def _get_token():
+     return token
+ 
+ 
++def _get_active_accounts():
++    """Get list of active Google accounts from the database."""
++    try:
++        conn = _get_db()
++        rows = conn.execute(
++            "SELECT email FROM google_accounts WHERE status = 'active'"
++        ).fetchall()
++        conn.close()
++        return [r["email"] for r in rows]
++    except Exception:
++        return []
++
++
+ def _api_get(url, token):
+     """Authenticated GET request to a Google API."""
+     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+@@ -157,14 +173,8 @@ def _find_calendar_event(conn, meeting_date_str):
+ # ── Commands ─────────────────────────────────────────────────────────────
+ 
+ 
+-def cmd_scan():
+-    """Find new Gemini emails, fetch Google Docs, store raw transcripts."""
+-    token = _get_token()
+-    if not token:
+-        print(json.dumps({"error": "Not authenticated. Run /google-setup first."}))
+-        sys.exit(1)
+-
+-    conn = _get_db()
++def _scan_with_token(token, conn):
++    """Scan for Gemini transcripts using a specific token. Returns (imported, errors)."""
+     imported = []
+     errors = []
+ 
+@@ -179,9 +189,7 @@ def cmd_scan():
+     ).fetchall()
+ 
+     if not gemini_emails:
+-        print(json.dumps({"imported": 0, "transcripts": [], "errors": []}))
+-        conn.close()
+-        return
++        return imported, errors
+ 
+     for email in gemini_emails:
+         email_id = email["id"]
+@@ -215,15 +223,13 @@ def cmd_scan():
+                 doc = _api_get(f"{DOCS_API}/{doc_id}", token)
+             except urllib.error.HTTPError as e:
+                 if e.code == 403:
+-                    print(json.dumps({
++                    errors.append({
++                        "email_id": email_id,
++                        "error": "Google Docs scope not authorized",
+                         "needs_reauth": True,
+-                        "error": "Google Docs scope not authorized. Re-run /google-setup to grant access.",
+-                        "imported": len(imported),
+-                        "transcripts": imported,
+-                        "errors": errors,
+-                    }))
+-                    conn.close()
+-                    return
++                    })
++                    # Continue with remaining emails — other docs may be accessible
++                    continue
+                 raise
+ 
+             raw_text = _extract_doc_text(doc)
+@@ -279,8 +285,44 @@ def cmd_scan():
+             errors.append({"email_id": email_id, "error": str(e)})
+             conn.rollback()
+ 
++    return imported, errors
++
++
++def cmd_scan():
++    """Find new Gemini emails, fetch Google Docs, store raw transcripts.
++
++    Iterates all connected Google accounts; falls back to single token
++    if no accounts are registered.
++    """
++    conn = _get_db()
++    all_imported = []
++    all_errors = []
++
++    accounts = _get_active_accounts()
++
++    if accounts:
++        # Multi-account: scan with each account's token
++        for account_email in accounts:
++            token = _get_token(email=account_email)
++            if not token:
++                all_errors.append({"account": account_email, "error": "Token invalid"})
++                continue
++            imported, errors = _scan_with_token(token, conn)
++            all_imported.extend(imported)
++            all_errors.extend(errors)
++    else:
++        # Legacy single-token fallback
++        token = _get_token()
++        if not token:
++            print(json.dumps({"error": "Not authenticated. Run /google-setup first."}))
++            conn.close()
++            sys.exit(1)
++        imported, errors = _scan_with_token(token, conn)
++        all_imported.extend(imported)
++        all_errors.extend(errors)
++
+     conn.close()
+-    print(json.dumps({"imported": len(imported), "transcripts": imported, "errors": errors}))
++    print(json.dumps({"imported": len(all_imported), "transcripts": all_imported, "errors": all_errors}))
+ 
+ 
+ def cmd_pending():

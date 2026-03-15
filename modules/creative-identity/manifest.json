@@ -1,0 +1,38 @@
+{
+  "name": "creative_identity",
+  "display_name": "Creative Identity",
+  "version": "1.0.0",
+  "description": "Persistent creative writing identity — mechanical style baseline, narrative principles (DNA), and per-project creative context (lore, characters, continuity). Learns from feedback and writing samples over time.",
+  "migration": "034_creative_identity_module.sql",
+  "tables": ["writing_samples", "narrative_principles", "creative_context", "creative_sessions"],
+  "entities": ["writing_sample", "narrative_principle", "creative_context_entry", "creative_session"],
+  "commands": [],
+  "standalone_features": [
+    "Ingest writing samples and compute mechanical style metrics",
+    "Track weighted narrative principles (creative DNA) by category",
+    "Store per-project creative context — characters, lore, scenes, decisions, threads",
+    "Post-session capture for creative work continuity",
+    "Style mode flag: learned, exploratory, or raw",
+    "Drift detection against your mechanical baseline",
+    "Full creative profile export for prompt injection"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "project-tracker",
+      "features": [
+        "Link creative context entries to SoY projects",
+        "Show creative context on project pages",
+        "Track creative sessions per project"
+      ],
+      "description": "Creative context entries and sessions link to projects, providing a creative layer on top of project management."
+    },
+    {
+      "requires_module": "notes",
+      "features": [
+        "Import notes as writing samples",
+        "Cross-reference creative observations with notes"
+      ],
+      "description": "Notes can be ingested as writing samples for baseline analysis. Creative observations cross-reference with the notes module."
+    }
+  ]
+}

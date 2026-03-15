@@ -1,0 +1,22 @@
+// Machine-specific
+.env
+config/google_token.json
+data/soy.db
+
+// Python artifacts
+__pycache__
+*.pyc
+.venv
+venv
+
+// Node artifacts
+node_modules
+
+// Git internals handled by git, not syncthing
+// (we sync .git too so it works as a repo on all machines)
+
+// Wrangler local state
+.wrangler
+
+// OS files
+.DS_Store

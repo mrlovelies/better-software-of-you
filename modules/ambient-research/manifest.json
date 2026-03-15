@@ -1,0 +1,34 @@
+{
+  "name": "ambient-research",
+  "display_name": "Ambient Research & Intelligence",
+  "version": "0.1.0",
+  "description": "Three-tier research pipeline using local LLMs and Claude CLI to produce living wiki documents and weekly intelligence digests.",
+  "migration": "036_ambient_research.sql",
+  "tables": [
+    "research_streams",
+    "research_tasks",
+    "research_findings",
+    "research_wikis",
+    "research_wiki_versions",
+    "research_digests",
+    "research_activity_signals",
+    "research_machines"
+  ],
+  "commands": [],
+  "standalone_features": [
+    "Dynamic research streams that evolve with project activity",
+    "Tier 1: Local 7B models for web sweeps and filtering",
+    "Tier 2: Local 14B model for summarization and wiki updates",
+    "Tier 3: Claude CLI for cross-stream synthesis and digests",
+    "Living wiki documents per research stream",
+    "Weekly coffee shop digest with learning workshops",
+    "Priority engine driven by project activity"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "project-tracker",
+      "features": ["Research streams auto-linked to projects", "Activity signals from project work"],
+      "description": "Research priorities shift based on active project work."
+    }
+  ]
+}

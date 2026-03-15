@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Son of Anton — Infrastructure Overview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Animated gradient mesh background */
+        .mesh-bg {
+            background: radial-gradient(ellipse at 20% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+                        radial-gradient(ellipse at 60% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 50%),
+                        #09090b;
+        }
+
+        /* Pulsing status dot */
+        @keyframes pulse-green {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+            50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+        }
+        @keyframes pulse-amber {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); }
+            50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+        }
+        .status-online { animation: pulse-green 2.5s ease-in-out infinite; }
+        .status-incoming { animation: pulse-amber 2.5s ease-in-out infinite; }
+
+        /* Glowing card border on hover */
+        .node-card {
+            background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+            border: 1px solid rgba(255,255,255,0.08);
+            transition: all 0.3s ease;
+        }
+        .node-card:hover {
+            border-color: rgba(59, 130, 246, 0.3);
+            box-shadow: 0 0 30px rgba(59, 130, 246, 0.1), 0 0 60px rgba(59, 130, 246, 0.05);
+            transform: translateY(-2px);
+        }
+        .node-card.incoming {
+            border: 1px dashed rgba(245, 158, 11, 0.3);
+        }
+        .node-card.incoming:hover {
+            border-color: rgba(245, 158, 11, 0.5);
+            box-shadow: 0 0 30px rgba(245, 158, 11, 0.1), 0 0 60px rgba(245, 158, 11, 0.05);
+        }
+
+        /* Network topology SVG animations */
+        @keyframes dash-flow {
+            to { stroke-dashoffset: -20; }
+        }
+        .connection-line {
+            stroke-dasharray: 6, 4;
+            animation: dash-flow 1.5s linear infinite;
+        }
+        .connection-line-pending {
+            stroke-dasharray: 4, 8;
+            animation: dash-flow 2.5s linear infinite;
+        }
+
+        @keyframes node-glow {
+            0%, 100% { filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.3)); }
+            50% { filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.6)); }
+        }
+        .topo-node { animation: node-glow 3s ease-in-out infinite; }
+        .topo-node-hub { animation: node-glow 2s ease-in-out infinite; }
+
+        /* Feature card gradient borders */
+        .feature-card {
+            position: relative;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            transition: all 0.3s ease;
+        }
+        .feature-card:hover {
+            background: rgba(255,255,255,0.05);
+            border-color: rgba(255,255,255,0.12);
+        }
+
+        /* VRAM bar segments */
+        .vram-bar { transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        /* Fade in on load */
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-up {
+            opacity: 0;
+            animation: fadeUp 0.6s ease-out forwards;
+        }
+        .fade-up-1 { animation-delay: 0.1s; }
+        .fade-up-2 { animation-delay: 0.2s; }
+        .fade-up-3 { animation-delay: 0.3s; }
+        .fade-up-4 { animation-delay: 0.4s; }
+        .fade-up-5 { animation-delay: 0.5s; }
+        .fade-up-6 { animation-delay: 0.6s; }
+        .fade-up-7 { animation-delay: 0.7s; }
+
+        /* Scroll reveal */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s ease-out;
+        }
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Tier badge glow */
+        .tier-badge {
+            text-shadow: 0 0 10px currentColor;
+        }
+
+        /* Spec grid divider */
+        .spec-row { border-bottom: 1px solid rgba(255,255,255,0.04); }
+        .spec-row:last-child { border-bottom: none; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .status-online, .status-incoming, .topo-node, .topo-node-hub { animation: none; }
+            .connection-line, .connection-line-pending { animation: none; }
+            .fade-up { animation: none; opacity: 1; }
+            .node-card:hover { transform: none; }
+        }
+    </style>
+</head>
+<body class="mesh-bg min-h-screen text-white font-sans antialiased">
+
+    <!-- Hero -->
+    <header class="max-w-6xl mx-auto px-6 pt-16 pb-8">
+        <div class="fade-up fade-up-1">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                    <i data-lucide="cpu" class="w-5 h-5 text-blue-400"></i>
+                </div>
+                <span class="text-sm font-mono text-zinc-500 tracking-wider uppercase">Infrastructure Overview</span>
+            </div>
+            <h1 class="text-5xl lg:text-6xl font-extrabold tracking-tight">
+                <span class="bg-gradient-to-r from-blue-400 via-violet-400 to-emerald-400 bg-clip-text text-transparent">Son of Anton</span>
+            </h1>
+            <p class="text-xl text-zinc-400 mt-4 max-w-2xl leading-relaxed">
+                A distributed local LLM mesh network that researches, learns, and reports autonomously — so you don't have to be at the keyboard for the work to continue.
+            </p>
+        </div>
+
+        <!-- Quick stats -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-10 fade-up fade-up-2">
+            <div class="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <p class="text-3xl font-bold font-mono text-blue-400" data-countup="3">3</p>
+                <p class="text-sm text-zinc-500 mt-1">Active Nodes</p>
+            </div>
+            <div class="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <p class="text-3xl font-bold font-mono text-violet-400" data-countup="6">6</p>
+                <p class="text-sm text-zinc-500 mt-1">LLM Models Loaded</p>
+            </div>
+            <div class="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <p class="text-3xl font-bold font-mono text-emerald-400" data-countup="7">7</p>
+                <p class="text-sm text-zinc-500 mt-1">Research Streams</p>
+            </div>
+            <div class="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <p class="text-3xl font-bold font-mono text-amber-400">24/7</p>
+                <p class="text-sm text-zinc-500 mt-1">Autonomous Operation</p>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-6 pb-20">
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- NETWORK TOPOLOGY                           -->
+        <!-- ═══════════════════════════════════════════ -->
+        <section class="mt-16 reveal">
+            <div class="flex items-center gap-2 mb-8">
+                <i data-lucide="network" class="w-5 h-5 text-zinc-500"></i>
+                <h2 class="text-lg font-semibold text-zinc-300">Network Topology</h2>
+                <span class="text-xs font-mono text-zinc-600 ml-2">via Tailscale mesh</span>
+            </div>
+
+            <div class="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-8 overflow-hidden">
+                <svg viewBox="0 0 800 320" class="w-full" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Connection lines -->
+                    <!-- Mac to Razer -->
+                    <line x1="160" y1="160" x2="400" y2="100" class="connection-line" stroke="rgba(59,130,246,0.3)" stroke-width="1.5"/>
+                    <!-- Mac to Lucy -->
+                    <line x1="160" y1="160" x2="400" y2="220" class="connection-line" stroke="rgba(59,130,246,0.3)" stroke-width="1.5"/>
+                    <!-- Razer to Lucy -->
+                    <line x1="400" y1="100" x2="400" y2="220" class="connection-line" stroke="rgba(59,130,246,0.4)" stroke-width="1.5"/>
+                    <!-- Razer to Legion (dashed, pending) -->
+                    <line x1="400" y1="100" x2="660" y2="160" class="connection-line-pending" stroke="rgba(245,158,11,0.25)" stroke-width="1.5"/>
+                    <!-- Lucy to Legion (dashed, pending) -->
+                    <line x1="400" y1="220" x2="660" y2="160" class="connection-line-pending" stroke="rgba(245,158,11,0.25)" stroke-width="1.5"/>
+
+                    <!-- Mac node -->
+                    <g class="topo-node">
+                        <circle cx="160" cy="160" r="28" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.4)" stroke-width="1.5"/>
+                        <text x="160" y="155" text-anchor="middle" fill="#93c5fd" font-family="JetBrains Mono" font-size="11" font-weight="600">MAC</text>
+                        <text x="160" y="168" text-anchor="middle" fill="#6b7280" font-family="JetBrains Mono" font-size="8">client</text>
+                    </g>
+                    <text x="160" y="205" text-anchor="middle" fill="#71717a" font-family="Inter" font-size="11">MacBook Air</text>
+                    <text x="160" y="220" text-anchor="middle" fill="#52525b" font-family="JetBrains Mono" font-size="9">Claude Code</text>
+
+                    <!-- Razer node (hub) -->
+                    <g class="topo-node-hub">
+                        <circle cx="400" cy="100" r="34" fill="rgba(59,130,246,0.15)" stroke="rgba(59,130,246,0.6)" stroke-width="2"/>
+                        <text x="400" y="93" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono" font-size="12" font-weight="700">RAZER</text>
+                        <text x="400" y="108" text-anchor="middle" fill="#9ca3af" font-family="JetBrains Mono" font-size="8">hub · tier 1</text>
+                    </g>
+                    <text x="400" y="150" text-anchor="middle" fill="#71717a" font-family="Inter" font-size="11">Razer Blade Pro</text>
+                    <text x="400" y="165" text-anchor="middle" fill="#52525b" font-family="JetBrains Mono" font-size="9">RTX 3060 · 4 models</text>
+
+                    <!-- Lucy node -->
+                    <g class="topo-node">
+                        <circle cx="400" cy="220" r="28" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.4)" stroke-width="1.5"/>
+                        <text x="400" y="215" text-anchor="middle" fill="#6ee7b7" font-family="JetBrains Mono" font-size="11" font-weight="600">LUCY</text>
+                        <text x="400" y="228" text-anchor="middle" fill="#6b7280" font-family="JetBrains Mono" font-size="8">tier 2</text>
+                    </g>
+                    <text x="400" y="265" text-anchor="middle" fill="#71717a" font-family="Inter" font-size="11">Gaming Rig</text>
+                    <text x="400" y="280" text-anchor="middle" fill="#52525b" font-family="JetBrains Mono" font-size="9">RTX 3080 Ti · 2 models</text>
+
+                    <!-- Legion node (incoming) -->
+                    <g>
+                        <circle cx="660" cy="160" r="32" fill="rgba(245,158,11,0.08)" stroke="rgba(245,158,11,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>
+                        <text x="660" y="153" text-anchor="middle" fill="#fbbf24" font-family="JetBrains Mono" font-size="11" font-weight="600">LEGION</text>
+                        <text x="660" y="166" text-anchor="middle" fill="#92400e" font-family="JetBrains Mono" font-size="8">incoming</text>
+                    </g>
+                    <text x="660" y="210" text-anchor="middle" fill="#71717a" font-family="Inter" font-size="11">Lenovo Legion</text>
+                    <text x="660" y="225" text-anchor="middle" fill="#d97706" font-family="JetBrains Mono" font-size="9">RTX 5080 · 16GB VRAM</text>
+
+                    <!-- Legend -->
+                    <line x1="40" y1="300" x2="65" y2="300" class="connection-line" stroke="rgba(59,130,246,0.4)" stroke-width="1.5"/>
+                    <text x="72" y="304" fill="#52525b" font-family="Inter" font-size="9">Active link</text>
+                    <line x1="150" y1="300" x2="175" y2="300" class="connection-line-pending" stroke="rgba(245,158,11,0.3)" stroke-width="1.5"/>
+                    <text x="182" y="304" fill="#52525b" font-family="Inter" font-size="9">Planned link</text>
+                </svg>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- CURRENT NODES                              -->
+        <!-- ═══════════════════════════════════════════ -->
+        <section class="mt-20 reveal">
+            <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="server" class="w-5 h-5 text-zinc-500"></i>
+                <h2 class="text-lg font-semibold text-zinc-300">Current Fleet</h2>
+            </div>
+            <p class="text-sm text-zinc-500 mb-8">Three machines on a Tailscale mesh, synced via Syncthing, coordinated by cron.</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <!-- Razer -->
+                <div class="node-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-3 h-3 rounded-full bg-green-500 status-online"></div>
+                            <h3 class="font-bold text-lg">Razer Blade Pro</h3>
+                        </div>
+                        <span class="text-xs font-mono font-semibold text-blue-400 tier-badge">HUB</span>
+                    </div>
+                    <p class="text-xs text-zinc-500 font-mono mb-4">100.125.139.126 · desktop-uu1kal0</p>
+
+                    <div class="space-y-0">
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">GPU</span>
+                            <span class="text-sm font-mono text-zinc-300">RTX 3060 <span class="text-zinc-600">6GB</span></span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">CPU</span>
+                            <span class="text-sm font-mono text-zinc-300">i7 HK</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">RAM</span>
+                            <span class="text-sm font-mono text-zinc-300">32GB</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">Models</span>
+                            <span class="text-sm font-mono text-zinc-300">4 loaded</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">OS</span>
+                            <span class="text-sm font-mono text-zinc-300">WSL2 Linux</span>
+                        </div>
+                    </div>
+
+                    <!-- VRAM usage -->
+                    <div class="mt-4">
+                        <div class="flex justify-between text-xs text-zinc-600 mb-1">
+                            <span>VRAM</span>
+                            <span class="font-mono">~5.2 / 6 GB</span>
+                        </div>
+                        <div class="w-full bg-white/[0.05] rounded-full h-1.5">
+                            <div class="bg-blue-500 h-1.5 rounded-full vram-bar" style="width: 87%"></div>
+                        </div>
+                    </div>
+
+                    <div class="mt-5 flex flex-wrap gap-1.5">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">Tier 1 Research</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-500/10 text-violet-400 border border-violet-500/20">Telegram Bot</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Health Monitor</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">Claude CLI</span>
+                    </div>
+                </div>
+
+                <!-- Lucy -->
+                <div class="node-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-3 h-3 rounded-full bg-green-500 status-online"></div>
+                            <h3 class="font-bold text-lg">Lucy</h3>
+                        </div>
+                        <span class="text-xs font-mono font-semibold text-emerald-400 tier-badge">TIER 2</span>
+                    </div>
+                    <p class="text-xs text-zinc-500 font-mono mb-4">100.74.238.16 · desktop-1746h58</p>
+
+                    <div class="space-y-0">
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">GPU</span>
+                            <span class="text-sm font-mono text-zinc-300">RTX 3080 Ti <span class="text-zinc-600">12GB</span></span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">CPU</span>
+                            <span class="text-sm font-mono text-zinc-300">Ryzen 9 3900X</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">RAM</span>
+                            <span class="text-sm font-mono text-zinc-300">32GB</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">Models</span>
+                            <span class="text-sm font-mono text-zinc-300">2 loaded</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">OS</span>
+                            <span class="text-sm font-mono text-zinc-300">WSL2 Ubuntu 24.04</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <div class="flex justify-between text-xs text-zinc-600 mb-1">
+                            <span>VRAM</span>
+                            <span class="font-mono">~9.4 / 12 GB</span>
+                        </div>
+                        <div class="w-full bg-white/[0.05] rounded-full h-1.5">
+                            <div class="bg-emerald-500 h-1.5 rounded-full vram-bar" style="width: 78%"></div>
+                        </div>
+                    </div>
+
+                    <div class="mt-5 flex flex-wrap gap-1.5">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Tier 2 Research</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">Wiki Synthesis</span>
+                    </div>
+                </div>
+
+                <!-- MacBook Air -->
+                <div class="node-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-3 h-3 rounded-full bg-green-500 status-online"></div>
+                            <h3 class="font-bold text-lg">MacBook Air</h3>
+                        </div>
+                        <span class="text-xs font-mono font-semibold text-zinc-500">CLIENT</span>
+                    </div>
+                    <p class="text-xs text-zinc-500 font-mono mb-4">mobile · primary interface</p>
+
+                    <div class="space-y-0">
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">Chip</span>
+                            <span class="text-sm font-mono text-zinc-300">Apple M-series</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">Role</span>
+                            <span class="text-sm font-mono text-zinc-300">Interface + Sync</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">Sync</span>
+                            <span class="text-sm font-mono text-zinc-300">Syncthing</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">DB</span>
+                            <span class="text-sm font-mono text-zinc-300">Primary copy</span>
+                        </div>
+                        <div class="spec-row flex justify-between py-2">
+                            <span class="text-sm text-zinc-500">Travel</span>
+                            <span class="text-sm font-mono text-zinc-300">Yes (mobile)</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 pt-4 border-t border-white/[0.04]">
+                        <p class="text-xs text-zinc-600 leading-relaxed">The human interface. Runs Claude Code and Software of You directly. Syncs data bidirectionally with all nodes.</p>
+                    </div>
+
+                    <div class="mt-5 flex flex-wrap gap-1.5">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">Claude Code</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">SoY Primary</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">Syncthing</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- INCOMING: LEGION                           -->
+        <!-- ═══════════════════════════════════════════ -->
+        <section class="mt-20 reveal">
+            <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="plus-circle" class="w-5 h-5 text-amber-500/70"></i>
+                <h2 class="text-lg font-semibold text-zinc-300">Incoming Node</h2>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 ml-2">PENDING</span>
+            </div>
+            <p class="text-sm text-zinc-500 mb-8">The next machine entering the mesh — a significant GPU upgrade.</p>
+
+            <div class="node-card incoming rounded-2xl p-8">
+                <div class="flex flex-col lg:flex-row gap-8">
+                    <!-- Left: Identity -->
+                    <div class="lg:w-1/3">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-3 h-3 rounded-full bg-amber-500 status-incoming"></div>
+                            <h3 class="font-bold text-2xl">Legion</h3>
+                        </div>
+                        <p class="text-sm text-zinc-500 mb-6">Lenovo Legion 16" OLED</p>
+
+                        <div class="space-y-0">
+                            <div class="spec-row flex justify-between py-2">
+                                <span class="text-sm text-zinc-500">GPU</span>
+                                <span class="text-sm font-mono text-amber-300">RTX 5080 <span class="text-amber-600">16GB GDDR7</span></span>
+                            </div>
+                            <div class="spec-row flex justify-between py-2">
+                                <span class="text-sm text-zinc-500">CPU</span>
+                                <span class="text-sm font-mono text-zinc-300">Ultra 9 275HX</span>
+                            </div>
+                            <div class="spec-row flex justify-between py-2">
+                                <span class="text-sm text-zinc-500">RAM</span>
+                                <span class="text-sm font-mono text-zinc-300">32GB DDR5-6400</span>
+                            </div>
+                            <div class="spec-row flex justify-between py-2">
+                                <span class="text-sm text-zinc-500">Storage</span>
+                                <span class="text-sm font-mono text-zinc-300">1TB Gen5 NVMe</span>
+                            </div>
+                            <div class="spec-row flex justify-between py-2">
+                                <span class="text-sm text-zinc-500">Display</span>
+                                <span class="text-sm font-mono text-zinc-300">OLED 2560x1600 240Hz</span>
+                            </div>
+                            <div class="spec-row flex justify-between py-2">
+                                <span class="text-sm text-zinc-500">WiFi</span>
+                                <span class="text-sm font-mono text-zinc-300">Wi-Fi 7 BE 320MHz</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Impact -->
+                    <div class="lg:w-2/3 lg:border-l lg:border-white/[0.06] lg:pl-8">
+                        <h4 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-5">Impact on the Mesh</h4>
+
+                        <!-- VRAM comparison -->
+                        <div class="mb-8">
+                            <h5 class="text-xs font-mono text-zinc-500 mb-3">VRAM Capacity Comparison</h5>
+                            <div class="space-y-3">
+                                <div>
+                                    <div class="flex justify-between text-xs mb-1">
+                                        <span class="text-zinc-500">Razer — RTX 3060</span>
+                                        <span class="font-mono text-zinc-400">6 GB</span>
+                                    </div>
+                                    <div class="w-full bg-white/[0.05] rounded-full h-2">
+                                        <div class="bg-blue-500/60 h-2 rounded-full vram-bar" style="width: 17.6%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs mb-1">
+                                        <span class="text-zinc-500">Lucy — RTX 3080 Ti</span>
+                                        <span class="font-mono text-zinc-400">12 GB</span>
+                                    </div>
+                                    <div class="w-full bg-white/[0.05] rounded-full h-2">
+                                        <div class="bg-emerald-500/60 h-2 rounded-full vram-bar" style="width: 35.3%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs mb-1">
+                                        <span class="text-amber-400">Legion — RTX 5080</span>
+                                        <span class="font-mono text-amber-400">16 GB GDDR7</span>
+                                    </div>
+                                    <div class="w-full bg-white/[0.05] rounded-full h-2">
+                                        <div class="bg-gradient-to-r from-amber-500 to-amber-400 h-2 rounded-full vram-bar" style="width: 47.1%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs mb-1">
+                                        <span class="text-zinc-600">Combined mesh total</span>
+                                        <span class="font-mono text-zinc-400">34 GB</span>
+                                    </div>
+                                    <div class="w-full bg-white/[0.05] rounded-full h-2">
+                                        <div class="bg-gradient-to-r from-blue-500 via-emerald-500 to-amber-400 h-2 rounded-full vram-bar" style="width: 100%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- What it unlocks -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="rounded-xl bg-amber-500/[0.04] border border-amber-500/10 p-4">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <i data-lucide="brain" class="w-4 h-4 text-amber-400"></i>
+                                    <span class="text-sm font-semibold text-amber-300">Larger Models</span>
+                                </div>
+                                <p class="text-xs text-zinc-500 leading-relaxed">16GB GDDR7 can run 30B+ parameter models fully in VRAM. Qwen 2.5 32B, Mixtral, or fine-tuned specializations.</p>
+                            </div>
+                            <div class="rounded-xl bg-amber-500/[0.04] border border-amber-500/10 p-4">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+                                    <span class="text-sm font-semibold text-amber-300">Gen5 Architecture</span>
+                                </div>
+                                <p class="text-xs text-zinc-500 leading-relaxed">GDDR7 memory bandwidth and PCIe Gen5 storage mean dramatically faster model loading and inference throughput.</p>
+                            </div>
+                            <div class="rounded-xl bg-amber-500/[0.04] border border-amber-500/10 p-4">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <i data-lucide="layers" class="w-4 h-4 text-amber-400"></i>
+                                    <span class="text-sm font-semibold text-amber-300">Tier Flexibility</span>
+                                </div>
+                                <p class="text-xs text-zinc-500 leading-relaxed">Powerful enough to handle any tier. Could replace Razer as Tier 1, promote Lucy to Tier 1, or run a dedicated synthesis tier.</p>
+                            </div>
+                            <div class="rounded-xl bg-amber-500/[0.04] border border-amber-500/10 p-4">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <i data-lucide="monitor" class="w-4 h-4 text-amber-400"></i>
+                                    <span class="text-sm font-semibold text-amber-300">Dual-Use</span>
+                                </div>
+                                <p class="text-xs text-zinc-500 leading-relaxed">OLED 240Hz display + full GPU makes this a portable workstation and gaming rig when not running inference.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- HOW IT WORKS                               -->
+        <!-- ═══════════════════════════════════════════ -->
+        <section class="mt-20 reveal">
+            <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="workflow" class="w-5 h-5 text-zinc-500"></i>
+                <h2 class="text-lg font-semibold text-zinc-300">How It Works</h2>
+            </div>
+            <p class="text-sm text-zinc-500 mb-8">Three tiers of intelligence, running on schedules, producing knowledge autonomously.</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <!-- Tier 1 -->
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-4">
+                        <span class="text-lg font-bold font-mono text-blue-400">T1</span>
+                    </div>
+                    <h3 class="font-semibold text-lg mb-2">Web Research Sweeps</h3>
+                    <p class="text-sm text-zinc-500 mb-4">Mistral 7B on the Razer scans the web for new developments across all research streams.</p>
+                    <div class="space-y-2 text-xs text-zinc-600">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="clock" class="w-3 h-3"></i>
+                            <span>Every 6 hours</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="cpu" class="w-3 h-3"></i>
+                            <span>Mistral 7B @ ~57 tok/s</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="filter" class="w-3 h-3"></i>
+                            <span>Filters signal from noise</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tier 2 -->
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-4">
+                        <span class="text-lg font-bold font-mono text-emerald-400">T2</span>
+                    </div>
+                    <h3 class="font-semibold text-lg mb-2">Summarization & Synthesis</h3>
+                    <p class="text-sm text-zinc-500 mb-4">Qwen 2.5 14B on Lucy processes Tier 1 findings into living wiki documents.</p>
+                    <div class="space-y-2 text-xs text-zinc-600">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="clock" class="w-3 h-3"></i>
+                            <span>Every 12 hours</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="cpu" class="w-3 h-3"></i>
+                            <span>Qwen 2.5 14B @ ~72 tok/s</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="book-open" class="w-3 h-3"></i>
+                            <span>Updates wiki documents</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tier 3 -->
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mb-4">
+                        <span class="text-lg font-bold font-mono text-violet-400">T3</span>
+                    </div>
+                    <h3 class="font-semibold text-lg mb-2">Cross-Stream Intelligence</h3>
+                    <p class="text-sm text-zinc-500 mb-4">Claude CLI runs overnight, synthesizing across all streams into weekly intelligence digests.</p>
+                    <div class="space-y-2 text-xs text-zinc-600">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="clock" class="w-3 h-3"></i>
+                            <span>Overnight at 3am ET</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="sparkles" class="w-3 h-3"></i>
+                            <span>Claude via CLI subscription</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="newspaper" class="w-3 h-3"></i>
+                            <span>Weekly "coffee shop" digest</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pipeline flow -->
+            <div class="mt-8 rounded-xl bg-white/[0.02] border border-white/[0.06] p-6">
+                <div class="flex items-center justify-center gap-3 flex-wrap text-sm font-mono">
+                    <span class="px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">Web Sweep</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4 text-zinc-600"></i>
+                    <span class="px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">Filter & Score</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4 text-zinc-600"></i>
+                    <span class="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Summarize</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4 text-zinc-600"></i>
+                    <span class="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Wiki Update</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4 text-zinc-600"></i>
+                    <span class="px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20">Cross-Synthesize</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4 text-zinc-600"></i>
+                    <span class="px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20">Weekly Digest</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- RESEARCH STREAMS                           -->
+        <!-- ═══════════════════════════════════════════ -->
+        <section class="mt-20 reveal">
+            <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="radio" class="w-5 h-5 text-zinc-500"></i>
+                <h2 class="text-lg font-semibold text-zinc-300">Active Research Streams</h2>
+            </div>
+            <p class="text-sm text-zinc-500 mb-8">Seven concurrent research streams, prioritized by project activity. The system watches what you work on and shifts focus accordingly.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="feature-card rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-semibold">Hephaestus / Spec-Site</span>
+                        <span class="text-xs font-mono text-amber-400">P8</span>
+                    </div>
+                    <p class="text-xs text-zinc-600">Automated spec-site generation, design tokens, Cloudflare ecosystem, output homogeneity problem</p>
+                </div>
+                <div class="feature-card rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-semibold">Entropy / Game Dev</span>
+                        <span class="text-xs font-mono text-amber-400">P7</span>
+                    </div>
+                    <p class="text-xs text-zinc-600">UE5, PaperZD, HD-2D rendering, indie game development patterns</p>
+                </div>
+                <div class="feature-card rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-semibold">Voice Acting Craft</span>
+                        <span class="text-xs font-mono text-yellow-400">P6</span>
+                    </div>
+                    <p class="text-xs text-zinc-600">Indie VO trends, voice direction, casting landscape, ACTRA developments</p>
+                </div>
+                <div class="feature-card rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-semibold">UE5 Technical Skills</span>
+                        <span class="text-xs font-mono text-yellow-400">P6</span>
+                    </div>
+                    <p class="text-xs text-zinc-600">Blueprints, PaperZD tutorials, animation state machines, level design</p>
+                </div>
+                <div class="feature-card rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-semibold">GrimSparkle / Design</span>
+                        <span class="text-xs font-mono text-zinc-500">P5</span>
+                    </div>
+                    <p class="text-xs text-zinc-600">Soulslike design philosophy, gothic aesthetic, dark fantasy art direction</p>
+                </div>
+                <div class="feature-card rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-semibold">FF Lore & Narrative</span>
+                        <span class="text-xs font-mono text-zinc-500">P4</span>
+                    </div>
+                    <p class="text-xs text-zinc-600">Final Fantasy lore systems, JRPG narrative design, Ultimania reference</p>
+                </div>
+                <div class="feature-card rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-semibold">Horror Memorabilia</span>
+                        <span class="text-xs font-mono text-zinc-600">P2</span>
+                    </div>
+                    <p class="text-xs text-zinc-600">Market trends, collectibles, slower cadence background stream</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- FEATURES & CAPABILITIES                    -->
+        <!-- ═══════════════════════════════════════════ -->
+        <section class="mt-20 reveal">
+            <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="sparkles" class="w-5 h-5 text-zinc-500"></i>
+                <h2 class="text-lg font-semibold text-zinc-300">Capabilities</h2>
+            </div>
+            <p class="text-sm text-zinc-500 mb-8">What Son of Anton does while you're away from the keyboard.</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
+                            <i data-lucide="send" class="w-5 h-5 text-violet-400"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold">Telegram AFK Interface</h3>
+                            <p class="text-xs text-zinc-600">Talk to your data from anywhere</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-zinc-500 leading-relaxed">A Telegram bot runs on the Razer 24/7, backed by Claude CLI. Query your contacts, check project status, log interactions, or ask questions about your data — all from your phone. The system processes your message through the full SoY database and responds conversationally.</p>
+                </div>
+
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                            <i data-lucide="brain" class="w-5 h-5 text-blue-400"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold">Continuous Learning</h3>
+                            <p class="text-xs text-zinc-600">Research that evolves with your work</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-zinc-500 leading-relaxed">The ambient research pipeline observes your active projects and adjusts research priorities automatically. Working on Spec-Site? Hephaestus stream gets bumped. Starting a new UE5 project? Game dev research intensifies. The system learns what matters to you and shifts focus — no manual configuration needed.</p>
+                </div>
+
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                            <i data-lucide="book-open" class="w-5 h-5 text-emerald-400"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold">Living Wiki Documents</h3>
+                            <p class="text-xs text-zinc-600">Knowledge that grows autonomously</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-zinc-500 leading-relaxed">Each research stream maintains a wiki document that's continuously updated by Tier 2 synthesis. These aren't static notes — they evolve as new findings come in, old information gets refined, and cross-stream connections are discovered. Currently maintaining 7 wikis with 3,800+ words of synthesized intelligence.</p>
+                </div>
+
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                            <i data-lucide="heart-pulse" class="w-5 h-5 text-red-400"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold">Self-Healing Infrastructure</h3>
+                            <p class="text-xs text-zinc-600">Detects problems, fixes what it can, alerts you for the rest</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-zinc-500 leading-relaxed">The health monitor runs every 30 minutes, checking SSH connectivity, Ollama status, model availability, and task completion rates. If Ollama goes down, it auto-restarts it. If a machine goes unreachable, it alerts you via Telegram with diagnostics. Failed research tasks get flagged before they pile up.</p>
+                </div>
+
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+                            <i data-lucide="refresh-cw" class="w-5 h-5 text-cyan-400"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold">Bidirectional Sync</h3>
+                            <p class="text-xs text-zinc-600">Every machine sees the same data</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-zinc-500 leading-relaxed">Syncthing keeps the codebase and SQLite database synchronized across all nodes in real-time. Work on the Mac, and the Razer sees it instantly. Research findings from Lucy propagate to every machine. The system is designed so writes are temporally separated — Tier 1 and Tier 2 never write simultaneously — avoiding SQLite conflicts.</p>
+                </div>
+
+                <div class="feature-card rounded-2xl p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                            <i data-lucide="newspaper" class="w-5 h-5 text-amber-400"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold">Weekly Intelligence Digest</h3>
+                            <p class="text-xs text-zinc-600">Your personal research briefing</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-zinc-500 leading-relaxed">Every week, Claude synthesizes all research streams into a single intelligence digest — key developments, cross-stream insights, and a hands-on "This Week's Workshop" learning module calibrated to your skill levels. Think of it as a personal research assistant that reads everything so you don't have to.</p>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- DATA SYNC ARCHITECTURE                     -->
+        <!-- ═══════════════════════════════════════════ -->
+        <section class="mt-20 reveal">
+            <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="database" class="w-5 h-5 text-zinc-500"></i>
+                <h2 class="text-lg font-semibold text-zinc-300">Data Architecture</h2>
+            </div>
+            <p class="text-sm text-zinc-500 mb-8">Everything is local. Nothing leaves your network unless you tell it to.</p>
+
+            <div class="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-8">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div>
+                        <div class="flex items-center gap-2 mb-3">
+                            <i data-lucide="hard-drive" class="w-4 h-4 text-blue-400"></i>
+                            <h4 class="text-sm font-semibold text-zinc-300">Storage</h4>
+                        </div>
+                        <p class="text-sm text-zinc-500 leading-relaxed">Single SQLite database, synced to all machines. Research findings, wiki documents, task history, and activity logs all live in one file. No cloud database, no external services.</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 mb-3">
+                            <i data-lucide="shield" class="w-4 h-4 text-emerald-400"></i>
+                            <h4 class="text-sm font-semibold text-zinc-300">Privacy</h4>
+                        </div>
+                        <p class="text-sm text-zinc-500 leading-relaxed">All LLM inference happens on your hardware. Research queries go through local models. Only Tier 3 synthesis uses Claude via subscription — and that's optional. Your data never trains anyone else's model.</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 mb-3">
+                            <i data-lucide="link" class="w-4 h-4 text-violet-400"></i>
+                            <h4 class="text-sm font-semibold text-zinc-300">Networking</h4>
+                        </div>
+                        <p class="text-sm text-zinc-500 leading-relaxed">Tailscale mesh VPN connects all machines with encrypted WireGuard tunnels. No port forwarding, no public IPs. Machines find each other automatically, even across networks.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- COST                                       -->
+        <!-- ═══════════════════════════════════════════ -->
+        <section class="mt-20 mb-8 reveal">
+            <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="receipt" class="w-5 h-5 text-zinc-500"></i>
+                <h2 class="text-lg font-semibold text-zinc-300">Operating Cost</h2>
+            </div>
+
+            <div class="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+                    <div>
+                        <p class="text-3xl font-bold font-mono text-emerald-400">$0</p>
+                        <p class="text-sm text-zinc-500 mt-2">Tier 1 & 2 inference</p>
+                        <p class="text-xs text-zinc-600 mt-1">Local models, your hardware</p>
+                    </div>
+                    <div>
+                        <p class="text-3xl font-bold font-mono text-emerald-400">$0</p>
+                        <p class="text-sm text-zinc-500 mt-2">Tier 3 synthesis</p>
+                        <p class="text-xs text-zinc-600 mt-1">Claude CLI on existing subscription</p>
+                    </div>
+                    <div>
+                        <p class="text-3xl font-bold font-mono text-emerald-400">$0</p>
+                        <p class="text-sm text-zinc-500 mt-2">Networking & sync</p>
+                        <p class="text-xs text-zinc-600 mt-1">Tailscale free tier + Syncthing OSS</p>
+                    </div>
+                </div>
+                <p class="text-center text-xs text-zinc-600 mt-6 border-t border-white/[0.04] pt-4">The entire system runs on hardware you already own, software that's free, and a Claude subscription you're already paying for.</p>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="mt-16 pt-8 border-t border-white/[0.04] text-center">
+            <p class="text-xs text-zinc-700 font-mono">Son of Anton · Generated <span id="gen-date"></span></p>
+        </footer>
+
+    </main>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Set generation date
+        document.getElementById('gen-date').textContent = new Date().toLocaleDateString('en-US', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: 'numeric', minute: '2-digit', hour12: true
+        });
+
+        // Countup animation
+        document.querySelectorAll('[data-countup]').forEach(el => {
+            const target = parseInt(el.dataset.countup);
+            const suffix = el.dataset.countupSuffix || '';
+            const duration = 800;
+            const start = performance.now();
+            function update(now) {
+                const elapsed = now - start;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3);
+                el.textContent = Math.round(target * eased) + suffix;
+                if (progress < 1) requestAnimationFrame(update);
+            }
+            requestAnimationFrame(update);
+        });
+
+        // VRAM bar animation
+        document.querySelectorAll('.vram-bar').forEach(bar => {
+            const targetWidth = bar.style.width;
+            bar.style.width = '0%';
+            setTimeout(() => { bar.style.width = targetWidth; }, 300);
+        });
+
+        // Scroll reveal
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.1 });
+        document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+    </script>
+</body>
+</html>

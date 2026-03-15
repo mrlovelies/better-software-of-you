@@ -2,6 +2,10 @@ data/soy.db
 data/soy.db-journal
 data/soy.db-wal
 data/soy.db-shm
+.env
+.wrangler/
+.stfolder/
+mcp-server/.venv/
 output/*.html
 config/google_token.json
 config/google_credentials.json

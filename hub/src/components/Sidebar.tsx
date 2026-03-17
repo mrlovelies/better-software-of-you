@@ -142,6 +142,9 @@ const subViewIcons: Record<string, React.ComponentType<{ className?: string }>> 
   project_analysis: Lightbulb,
   prep_page: ClipboardList,
   module_view: FileText,
+  project_docs: FileText,
+  module_route: PenTool,
+  writing: PenTool,
 }
 
 export default function Sidebar({ nav, currentPage, onNavigate, theme, onToggleTheme }: SidebarProps) {
@@ -309,9 +312,16 @@ export default function Sidebar({ nav, currentPage, onNavigate, theme, onToggleT
           </SidebarSection>
         )}
 
-        {/* Projects section */}
+        {/* Projects section — force open when a project child is active */}
         {hasModule('project-tracker') && filteredProjects.length > 0 && (
-          <SidebarSection id="section-projects" label="Projects" forceOpen={searching}>
+          <SidebarSection id="section-projects" label="Projects" forceOpen={
+            searching || filteredProjects.some(p =>
+              currentPage === (p.page_filename || `project:${p.id}`)
+              || (p.children && p.children.some(c =>
+                (c.route && currentPage === c.route) || currentPage === c.filename
+              ))
+            )
+          }>
             {filteredProjects.map(p => (
               <div key={p.id}>
                 <EntityLink
@@ -327,10 +337,13 @@ export default function Sidebar({ nav, currentPage, onNavigate, theme, onToggleT
                   <EntityLink
                     key={child.id}
                     label={child.entity_name || child.view_type.replace('_', ' ')}
-                    icon={subViewIcons[child.view_type] || FileText}
+                    icon={subViewIcons[child.view_type] || subViewIcons[child.route as string] || FileText}
                     indent
-                    active={currentPage === child.filename}
-                    onClick={() => nav_({ type: 'page', filename: child.filename })}
+                    active={child.route ? currentPage === child.route : currentPage === child.filename}
+                    onClick={() => child.route
+                      ? nav_({ type: child.route } as ContentRoute)
+                      : nav_({ type: 'page', filename: child.filename })
+                    }
                   />
                 ))}
               </div>
@@ -362,28 +375,7 @@ export default function Sidebar({ nav, currentPage, onNavigate, theme, onToggleT
           </SidebarSection>
         )}
 
-        {/* Creative — show when creative_identity or writing module installed */}
-        {!searching && (hasModule('creative_identity') || hasModule('writing')) && (
-          <SidebarSection id="section-creative" label="Creative">
-            {hasModule('creative_identity') && (
-              <SidebarItem
-                icon={BookOpen}
-                label="Creative Dashboard"
-                active={currentPage === 'creative-dashboard.html'}
-                onClick={() => nav_({ type: 'page', filename: 'creative-dashboard.html' })}
-              />
-            )}
-            {hasModule('writing') && (
-              <SidebarItem
-                icon={PenTool}
-                label="Writing"
-                badge={nav.badges.writing}
-                active={currentPage === 'writing'}
-                onClick={() => nav_({ type: 'writing' } as ContentRoute)}
-              />
-            )}
-          </SidebarSection>
-        )}
+        {/* Creative/Writing links now live under their projects in the Projects section */}
 
         {/* Intelligence — show when module installed, regardless of view existence */}
         {!searching && (() => {

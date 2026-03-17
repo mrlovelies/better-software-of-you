@@ -52,6 +52,7 @@ const subViewIcons: Record<string, React.ReactNode> = {
   pm_report: <BarChart3 className="w-4 h-4" />,
   project_analysis: <Lightbulb className="w-4 h-4" />,
   prep_page: <FileText className="w-4 h-4" />,
+  project_docs: <FileText className="w-4 h-4" />,
 }
 
 export default function ProjectView({ projectId, onNavigate }: { projectId: number; onNavigate: (r: ContentRoute) => void }) {

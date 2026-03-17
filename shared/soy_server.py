@@ -2225,9 +2225,32 @@ class SoYHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-            # Attach children to projects
+            # Attach children to projects (generated views + module routes)
+            # Build set of projects with writing/creative module data
+            writing_project_ids = set()
+            try:
+                for tbl in ["writing_samples", "writing_drafts", "creative_context"]:
+                    try:
+                        for r in conn.execute(f"SELECT DISTINCT project_id FROM {tbl} WHERE project_id IS NOT NULL").fetchall():
+                            writing_project_ids.add(r["project_id"])
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
             for proj in nav_projects:
-                proj["children"] = project_sub_views.get(proj["id"], [])
+                children = list(project_sub_views.get(proj["id"], []))
+                # Add Writing module link for projects with writing data
+                if proj["id"] in writing_project_ids:
+                    children.append({
+                        "id": -proj["id"],  # virtual ID
+                        "view_type": "module_route",
+                        "entity_id": proj["id"],
+                        "entity_name": "Writing",
+                        "filename": "",
+                        "route": "writing",
+                    })
+                proj["children"] = children
 
             # Learning badge: digests with no feedback in last 7 days
             try:
@@ -2544,6 +2567,31 @@ class SoYHandler(BaseHTTPRequestHandler):
 
             conn.close()
             self._send_json(data)
+            return
+
+        # GET all feedback for a project's drafts
+        if path == "/api/writing/feedback":
+            qs = parse_qs(parsed.query)
+            project_id = qs.get("project_id", [None])[0]
+            conn = _get_db()
+            if project_id:
+                rows = conn.execute(
+                    """SELECT df.*, d.title as draft_title
+                       FROM draft_feedback df
+                       JOIN writing_drafts d ON d.id = df.draft_id
+                       WHERE d.project_id = ?
+                       ORDER BY df.draft_id, df.created_at""",
+                    (int(project_id),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT df.*, d.title as draft_title
+                       FROM draft_feedback df
+                       JOIN writing_drafts d ON d.id = df.draft_id
+                       ORDER BY df.draft_id, df.created_at"""
+                ).fetchall()
+            conn.close()
+            self._send_json([_row_to_dict(r) for r in rows])
             return
 
         if path == "/api/writing/progress":
@@ -2963,6 +3011,39 @@ class SoYHandler(BaseHTTPRequestHandler):
             self._send_json(_row_to_dict(row))
             return
 
+        # PATCH writing feedback (resolve/update status)
+        m = re.match(r"^/api/writing/feedback/(\d+)$", path)
+        if m:
+            fid = int(m.group(1))
+            data = self._read_body()
+            conn = _get_db()
+            existing = conn.execute("SELECT id, draft_id, status FROM draft_feedback WHERE id = ?", (fid,)).fetchone()
+            if not existing:
+                conn.close()
+                self._send_json({"error": "Not found"}, 404)
+                return
+            updates = []
+            params = []
+            if "status" in data:
+                if data["status"] not in ("open", "addressed", "dismissed", "deferred"):
+                    conn.close()
+                    self._send_json({"error": "Invalid status"}, 400)
+                    return
+                updates.append("status = ?")
+                params.append(data["status"])
+            if "resolution" in data:
+                updates.append("resolution = ?")
+                params.append(data["resolution"])
+                updates.append("resolved_at = datetime('now')")
+            if updates:
+                params.append(fid)
+                conn.execute(f"UPDATE draft_feedback SET {', '.join(updates)} WHERE id = ?", params)
+                conn.commit()
+            row = conn.execute("SELECT * FROM draft_feedback WHERE id = ?", (fid,)).fetchone()
+            conn.close()
+            self._send_json(_row_to_dict(row))
+            return
+
         if not path.startswith("/api/auditions/"):
             self._send_json({"error": "Not found"}, 404)
             return
@@ -3224,6 +3305,140 @@ class SoYHandler(BaseHTTPRequestHandler):
                 "word_count": wc,
                 "change_summary": change_summary,
             }, 201)
+            return
+
+        # ── Writing Module: Process Open Feedback via Claude CLI ──────
+        if path == "/api/writing/process-feedback":
+            data = self._read_body()
+            project_id = data.get("project_id")
+            if not project_id:
+                self._send_json({"error": "project_id is required"}, 400)
+                return
+
+            conn = _get_db()
+
+            # 1. Get open feedback with draft context
+            open_fb = conn.execute("""
+                SELECT df.id, df.draft_id, df.feedback_type, df.content, df.highlighted_text,
+                       d.title as draft_title, d.pov_character, d.synopsis, d.notes
+                FROM draft_feedback df
+                JOIN writing_drafts d ON d.id = df.draft_id
+                WHERE d.project_id = ? AND df.status = 'open'
+                ORDER BY d.sort_order, df.created_at
+            """, (int(project_id),)).fetchall()
+
+            if not open_fb:
+                conn.close()
+                self._send_json({"message": "No open feedback to process", "processed": 0})
+                return
+
+            open_items = [_row_to_dict(r) for r in open_fb]
+
+            # 2. Get selective creative context (characters + active decisions only)
+            context_parts = []
+            try:
+                for r in conn.execute("""
+                    SELECT title, content FROM creative_context
+                    WHERE project_id = ? AND context_type IN ('character', 'decision')
+                    AND status = 'active'
+                    ORDER BY context_type, title
+                """, (int(project_id),)).fetchall():
+                    d = _row_to_dict(r)
+                    context_parts.append(f"### {d['title']}\n{d['content'][:2000]}")
+            except Exception:
+                pass
+
+            # 3. Get project description
+            proj = conn.execute("SELECT name, description FROM projects WHERE id = ?", (int(project_id),)).fetchone()
+            proj_info = _row_to_dict(proj) if proj else {"name": "Unknown", "description": ""}
+
+            conn.close()
+
+            # 4. Build prompt
+            context_block = "\n\n".join(context_parts[:10])  # Cap at 10 entries for token budget
+
+            feedback_block = "\n\n".join([
+                f"FEEDBACK #{fb['id']} on \"{fb['draft_title']}\" (POV: {fb['pov_character']})\n"
+                f"Type: {fb['feedback_type']}\n"
+                f"Chapter synopsis: {fb['synopsis']}\n"
+                f"Chapter notes: {fb['notes'] or 'none'}\n"
+                f"{'Highlighted: ' + fb['highlighted_text'] + chr(10) if fb['highlighted_text'] else ''}"
+                f"Feedback: {fb['content']}"
+                for fb in open_items
+            ])
+
+            prompt = f"""You are a creative collaborator on a literary fiction project: "{proj_info['name']}" — {proj_info['description'] or ''}
+
+## Creative Context (characters, decisions)
+{context_block}
+
+## Open Feedback to Process
+{feedback_block}
+
+## Instructions
+Respond to each feedback item. You are a creative collaborator, not an assistant — push back where warranted, offer alternatives, dig deeper. Be concise but substantive (2-4 sentences per item).
+
+Return ONLY a JSON array. Each element must have exactly these fields:
+- "id": the feedback ID number
+- "resolution": your response text
+
+Example: [{{"id": 4, "resolution": "The shoopuf scene works better understated..."}}]
+
+Return ONLY the JSON array, no markdown fences, no other text."""
+
+            # 5. Call claude CLI
+            import subprocess
+            try:
+                result = subprocess.run(
+                    ["/Users/mrlovelies/.local/bin/claude", "-p", prompt],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode != 0:
+                    self._send_json({"error": f"Claude CLI error: {result.stderr[:200]}"}, 500)
+                    return
+
+                raw = result.stdout.strip()
+                # Strip markdown fences if present
+                if "```" in raw:
+                    import re as _re
+                    fence_match = _re.search(r'```(?:json)?\s*\n?(.*?)```', raw, _re.DOTALL)
+                    if fence_match:
+                        raw = fence_match.group(1).strip()
+                # Extract JSON array from surrounding text
+                bracket_start = raw.find('[')
+                bracket_end = raw.rfind(']')
+                if bracket_start != -1 and bracket_end != -1:
+                    raw = raw[bracket_start:bracket_end + 1]
+                raw = raw.strip()
+
+                resolutions = json.loads(raw)
+            except subprocess.TimeoutExpired:
+                self._send_json({"error": "Processing timed out (2 min)"}, 504)
+                return
+            except json.JSONDecodeError as e:
+                self._send_json({"error": f"Failed to parse response: {str(e)[:100]}", "raw": raw[:500]}, 500)
+                return
+            except Exception as e:
+                self._send_json({"error": f"Processing failed: {str(e)[:200]}"}, 500)
+                return
+
+            # 6. Store resolutions
+            conn = _get_db()
+            processed = 0
+            for item in resolutions:
+                fb_id = item.get("id")
+                resolution = item.get("resolution")
+                if fb_id and resolution:
+                    conn.execute("""
+                        UPDATE draft_feedback
+                        SET resolution = ?, status = 'addressed', resolved_at = datetime('now')
+                        WHERE id = ? AND status = 'open'
+                    """, (resolution, int(fb_id)))
+                    processed += 1
+            conn.commit()
+            conn.close()
+
+            self._send_json({"processed": processed, "total": len(open_items)}, 200)
             return
 
         # ── Writing Module: Create Feedback ───────────────────────────

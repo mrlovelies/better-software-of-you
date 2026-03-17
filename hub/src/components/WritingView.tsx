@@ -329,17 +329,26 @@ function OutlineItem({
   activeDraftId,
   onSelect,
   depth = 0,
+  defaultExpanded = false,
 }: {
   draft: Draft
   children: Draft[]
   activeDraftId: number | null
   onSelect: (id: number) => void
   depth?: number
+  defaultExpanded?: boolean
 }) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(defaultExpanded)
   const hasChildren = children.length > 0
   const isActive = activeDraftId === draft.id
   const isChapter = draft.draft_type === 'chapter'
+
+  // Auto-expand when a child becomes active
+  useEffect(() => {
+    if (hasChildren && children.some(c => c.id === activeDraftId)) {
+      setExpanded(true)
+    }
+  }, [activeDraftId])
 
   return (
     <div>
@@ -482,7 +491,7 @@ function ProseReader({
       <div
         ref={proseRef}
         onMouseUp={handleMouseUp}
-        className="prose-reader text-[0.9375rem] text-zinc-800 dark:text-zinc-200 font-serif leading-relaxed selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text"
+        className="prose-reader text-[0.9375rem] text-zinc-800 dark:text-zinc-200 font-sans leading-relaxed selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text"
       >
         {renderProse(content)}
       </div>
@@ -696,7 +705,7 @@ function ProseEditor({
         suppressContentEditableWarning
         onInput={handleInput}
         onKeyDown={handleKeyDown}
-        className="prose-editor text-[0.9375rem] text-zinc-800 dark:text-zinc-200 font-serif leading-relaxed selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text outline-none border-l-2 border-blue-200 dark:border-blue-800/40 pl-6 min-h-[400px] [&_p]:mb-4 [&_hr]:border-none [&_hr]:text-center [&_hr]:py-2 [&_hr]:my-4 [&_hr]:[content:''] [&_hr]:block [&_hr]:h-6 [&_strong]:font-bold [&_em]:italic"
+        className="prose-editor text-[0.9375rem] text-zinc-800 dark:text-zinc-200 font-sans leading-relaxed selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text outline-none border-l-2 border-blue-200 dark:border-blue-800/40 pl-6 min-h-[400px] [&_p]:mb-4 [&_hr]:border-none [&_hr]:text-center [&_hr]:py-2 [&_hr]:my-4 [&_hr]:[content:''] [&_hr]:block [&_hr]:h-6 [&_strong]:font-bold [&_em]:italic"
         style={{
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
@@ -797,6 +806,7 @@ export default function WritingView() {
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [panelTab, setPanelTab] = useState<'feedback' | 'lore' | 'characters'>('feedback')
   const [mode, setMode] = useState<'read' | 'edit'>('read')
+  const [rightPanelOpen, setRightPanelOpen] = useState(true)
 
   // Load all drafts (for now, project 209 — Braska's Pilgrimage)
   useEffect(() => {
@@ -805,9 +815,16 @@ export default function WritingView() {
       .then(data => {
         setDrafts(data)
         setLoading(false)
-        // Auto-select first scene
-        const firstScene = data.find((d: Draft) => d.parent_id && d.current_version > 0)
-        if (firstScene) loadDraft(firstScene.id)
+        // Check URL for draft param (deep link from chapter outline)
+        const params = new URLSearchParams(window.location.search)
+        const draftParam = params.get('draft')
+        if (draftParam) {
+          loadDraft(parseInt(draftParam))
+        } else {
+          // Auto-select first scene with content
+          const firstScene = data.find((d: Draft) => d.parent_id && d.current_version > 0)
+          if (firstScene) loadDraft(firstScene.id)
+        }
       })
       .catch(() => setLoading(false))
   }, [])
@@ -897,7 +914,7 @@ export default function WritingView() {
   return (
     <main className="flex-1 min-h-screen flex flex-col lg:flex-row">
       {/* ── Outline Panel ── */}
-      <div className={`${outlineOpen ? 'w-full lg:w-64' : 'w-0'} shrink-0 border-r border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 overflow-hidden transition-all`}>
+      <div className={`${outlineOpen ? 'w-64' : 'w-0'} shrink-0 border-r border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/80 overflow-hidden transition-all`}>
         <div className="p-3 border-b border-zinc-200 dark:border-zinc-700">
           <div className="flex items-center gap-2">
             <PenTool className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
@@ -928,7 +945,8 @@ export default function WritingView() {
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shrink-0">
           <button
             onClick={() => setOutlineOpen(!outlineOpen)}
-            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 lg:hidden"
+            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title={outlineOpen ? 'Hide outline' : 'Show outline'}
           >
             <BookOpen className="w-4 h-4" />
           </button>
@@ -978,12 +996,19 @@ export default function WritingView() {
                 {wordCount(activeDraft.word_count)} words
                 {activeDraft.current_version > 0 && ` \u00B7 v${activeDraft.current_version}`}
               </span>
+              <button
+                onClick={() => setRightPanelOpen(!rightPanelOpen)}
+                className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 shrink-0"
+                title={rightPanelOpen ? 'Hide panel' : 'Show panel'}
+              >
+                <MessageSquare className="w-4 h-4" />
+              </button>
             </>
           )}
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-850 dark:bg-[#1e2024]">
           {loadingDraft ? (
             <div className="flex items-center justify-center py-20">
               <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading...</p>
@@ -1028,7 +1053,7 @@ export default function WritingView() {
 
       {/* ── Right Panel: Feedback / Lore / Characters ── */}
       {activeDraft && (
-        <div className="w-full lg:w-72 shrink-0 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 flex flex-col overflow-hidden">
+        <div className={`${rightPanelOpen ? 'w-72' : 'w-0'} shrink-0 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/80 flex flex-col overflow-hidden transition-all`}>
           {/* Tab bar */}
           <div className="flex border-b border-zinc-200 dark:border-zinc-700 shrink-0">
             {[

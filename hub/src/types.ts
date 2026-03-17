@@ -5,6 +5,7 @@ export interface GeneratedView {
   entity_id: number | null
   entity_name: string | null
   filename: string
+  route?: string  // native route type (e.g. 'writing') — used instead of filename for module views
   parent_page_id: number | null
   parent_filename: string | null
   children?: GeneratedView[]

@@ -2512,6 +2512,8 @@ class SoYHandler(BaseHTTPRequestHandler):
 
         if re.match(r"^/api/writing/drafts/\d+$", path):
             draft_id = int(path.split("/")[-1])
+            qs = parse_qs(parsed.query)
+            req_version = qs.get("version", [None])[0]
             conn = _get_db()
             draft = conn.execute(
                 """SELECT d.*, p.name as project_name
@@ -2526,12 +2528,15 @@ class SoYHandler(BaseHTTPRequestHandler):
                 return
             data = _row_to_dict(draft)
 
+            # Load specific version if requested, otherwise current
+            load_version = int(req_version) if req_version else data["current_version"]
             ver = conn.execute(
                 """SELECT * FROM draft_versions
                    WHERE draft_id = ? AND version_number = ?""",
-                (draft_id, data["current_version"]),
+                (draft_id, load_version),
             ).fetchone()
             data["content"] = _row_to_dict(ver) if ver else None
+            data["viewing_version"] = load_version
 
             versions = conn.execute(
                 """SELECT id, version_number, word_count, change_summary, created_at

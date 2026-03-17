@@ -581,9 +581,28 @@ function ProseReader({
     }
   }, [activeParagraph, focusState])
 
-  const highlightedTexts = feedback
+  // Build highlight fragments — split multi-paragraph highlights into per-paragraph pieces
+  const highlightFragments: { fragment: string; dataAttr: string }[] = []
+  feedback
     .filter(f => f.highlighted_text && f.status === 'open')
-    .map(f => f.highlighted_text!)
+    .forEach(f => {
+      const ht = f.highlighted_text!
+      const dataAttr = ht.slice(0, 40).replace(/"/g, '&quot;')
+      // Split on double-newlines (paragraph boundaries) and on single newlines
+      const fragments = ht.split(/\n\n|\n/).map(s => s.trim()).filter(s => s.length > 0)
+      for (const frag of fragments) {
+        highlightFragments.push({ fragment: frag, dataAttr })
+      }
+    })
+
+  function applyHighlights(html: string): string {
+    for (const { fragment, dataAttr } of highlightFragments) {
+      const escaped = fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      html = html.replace(new RegExp(`(${escaped})`, 'g'),
+        `<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100 scroll-mt-32 transition-all duration-300" data-highlight="${dataAttr}">$1</mark>`)
+    }
+    return html
+  }
 
   function renderProse(text: string): React.ReactNode[] {
     // Handle HTML content (from edit mode saves)
@@ -599,12 +618,7 @@ function ProseReader({
             nodes.push(<div key={i} className="section-break text-center text-zinc-400 dark:text-zinc-500 py-4 text-sm tracking-[0.3em]">&bull; &bull; &bull;</div>)
             paraIndex++
           } else {
-            let html = el.innerHTML
-            for (const ht of highlightedTexts) {
-              const escaped = ht.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-              html = html.replace(new RegExp(`(${escaped})`, 'g'),
-                `<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100 scroll-mt-32 transition-all duration-300" data-highlight="${ht.slice(0, 40).replace(/"/g, '&quot;')}">$1</mark>`)
-            }
+            const html = applyHighlights(el.innerHTML)
             const isFocused = focusState === 'off' || paraIndex === activeParagraph
             nodes.push(
               <p
@@ -620,21 +634,8 @@ function ProseReader({
       return nodes
     }
 
-    // Handle plain text content (legacy)
+    // Handle plain text content
     let paraIndex = 0
-    if (highlightedTexts.length === 0) {
-      return text.split('\n\n').map((para, i) => {
-        if (para.trim().match(/^[•·\s]+$/)) {
-          const idx = paraIndex++
-          const isFocused = focusState === 'off' || idx === activeParagraph
-          return <div key={i} className={`section-break text-center text-zinc-400 dark:text-zinc-500 py-4 text-sm tracking-[0.3em] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`}>* * *</div>
-        }
-        const idx = paraIndex++
-        const isFocused = focusState === 'off' || idx === activeParagraph
-        return <p key={i} className={`mb-5 leading-[1.58] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`}>{para.trim()}</p>
-      })
-    }
-
     return text.split('\n\n').map((para, i) => {
       if (para.trim().match(/^[•·\s]+$/)) {
         const idx = paraIndex++
@@ -642,16 +643,15 @@ function ProseReader({
         return <div key={i} className={`section-break text-center text-zinc-400 dark:text-zinc-500 py-4 text-sm tracking-[0.3em] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`}>* * *</div>
       }
 
-      let html = para.trim()
-      for (const ht of highlightedTexts) {
-        const escaped = ht.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        html = html.replace(new RegExp(`(${escaped})`, 'g'),
-          `<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100 scroll-mt-32 transition-all duration-300" data-highlight="${ht.slice(0, 40).replace(/"/g, '&quot;')}">$1</mark>`)
-      }
+      const html = applyHighlights(para.trim())
+      const hasMarks = html.includes('<mark')
 
       const idx = paraIndex++
       const isFocused = focusState === 'off' || idx === activeParagraph
-      return <p key={i} className={`mb-5 leading-[1.58] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`} dangerouslySetInnerHTML={{ __html: html }} />
+      if (hasMarks) {
+        return <p key={i} className={`mb-5 leading-[1.58] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`} dangerouslySetInnerHTML={{ __html: html }} />
+      }
+      return <p key={i} className={`mb-5 leading-[1.58] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`}>{para.trim()}</p>
     })
   }
 
@@ -925,7 +925,7 @@ function ProseEditor({
 
 // ── Feedback Panel ─────────────────────────────────────────
 
-function FeedbackPanel({ items, onDelete }: { items: Feedback[]; onDelete: (id: number) => void }) {
+function FeedbackPanel({ items, onDelete, onProcess, processing }: { items: Feedback[]; onDelete: (id: number) => void; onProcess?: () => void; processing?: boolean }) {
   if (items.length === 0) return null
 
   const open = items.filter(f => f.status === 'open')
@@ -933,6 +933,25 @@ function FeedbackPanel({ items, onDelete }: { items: Feedback[]; onDelete: (id: 
 
   return (
     <div className="space-y-2">
+      {open.length > 0 && onProcess && (
+        <button
+          onClick={onProcess}
+          disabled={processing}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[0.8125rem] font-medium transition-all bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
+        >
+          {processing ? (
+            <>
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              Processing...
+            </>
+          ) : (
+            <>
+              <Lightbulb className="w-3.5 h-3.5" />
+              Process {open.length} Open Note{open.length > 1 ? 's' : ''}
+            </>
+          )}
+        </button>
+      )}
       {open.map(f => {
         const Icon = feedbackIcons[f.feedback_type] || StickyNote
         return (
@@ -969,18 +988,68 @@ function FeedbackPanel({ items, onDelete }: { items: Feedback[]; onDelete: (id: 
         )
       })}
       {resolved.length > 0 && (
-        <details className="mt-3">
-          <summary className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-300">
-            {resolved.length} resolved
-          </summary>
-          <div className="space-y-1.5 mt-1.5 opacity-60">
-            {resolved.map(f => (
-              <div key={f.id} className="text-[0.75rem] text-zinc-500 dark:text-zinc-400 pl-5 py-1">
-                <span className="capitalize font-medium">{f.feedback_type}:</span> {f.content.slice(0, 80)}
-              </div>
-            ))}
+        <div className="mt-3">
+          <div className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 font-medium mb-2">{resolved.length} resolved</div>
+          <div className="space-y-2">
+            {resolved.map(f => {
+              const Icon = feedbackIcons[f.feedback_type] || StickyNote
+              return (
+                <details key={f.id} className="group">
+                  <summary className={`flex items-center gap-1.5 px-3 py-2 rounded-lg cursor-pointer transition-colors bg-white/50 dark:bg-[#222226]/50 border border-zinc-200/60 dark:border-zinc-700/60 hover:bg-white dark:hover:bg-[#222226]`}>
+                    <Icon className={`w-3 h-3 ${feedbackColors[f.feedback_type]} opacity-50`} />
+                    <span className="text-[0.75rem] text-zinc-500 dark:text-zinc-400 truncate flex-1">{f.content.slice(0, 60)}{f.content.length > 60 ? '...' : ''}</span>
+                    <ChevronRight className="w-3 h-3 text-zinc-400 dark:text-zinc-500 group-open:rotate-90 transition-transform shrink-0" />
+                  </summary>
+                  <div className="mt-1 ml-2 pl-3 border-l-2 border-zinc-200 dark:border-zinc-700 space-y-2 pb-2">
+                    {/* Original note */}
+                    <div className="pt-2">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <div className="w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                          <span className="text-[0.5rem] font-bold text-blue-700 dark:text-blue-400">A</span>
+                        </div>
+                        <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500">{timeAgo(f.created_at)}</span>
+                      </div>
+                      {f.highlighted_text && (
+                        <p className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 italic mb-1">"{f.highlighted_text.slice(0, 120)}{f.highlighted_text.length > 120 ? '...' : ''}"</p>
+                      )}
+                      <p className="text-[0.8125rem] text-zinc-700 dark:text-zinc-300">{f.content}</p>
+                    </div>
+                    {/* Resolution */}
+                    {f.resolution && (
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <div className="w-4 h-4 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                            <span className="text-[0.5rem] font-bold text-amber-700 dark:text-amber-400">C</span>
+                          </div>
+                          <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500">{f.resolved_at ? timeAgo(f.resolved_at) : 'resolved'}</span>
+                        </div>
+                        <p className="text-[0.8125rem] text-zinc-600 dark:text-zinc-400">{f.resolution}</p>
+                      </div>
+                    )}
+                    {/* Reopen button */}
+                    <button
+                      onClick={() => {
+                        fetch(`/api/writing/feedback/${f.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: 'open' }),
+                        }).then(res => {
+                          if (res.ok && onProcess) {
+                            // Trigger a reload by calling onProcess's parent refresh pattern
+                            window.location.reload()
+                          }
+                        })
+                      }}
+                      className="text-[0.6875rem] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors"
+                    >
+                      Reopen
+                    </button>
+                  </div>
+                </details>
+              )
+            })}
           </div>
-        </details>
+        </div>
       )}
     </div>
   )
@@ -997,6 +1066,8 @@ export default function WritingView() {
   const [panelTab, setPanelTab] = useState<'feedback' | 'lore' | 'characters'>('feedback')
   const [mode, setMode] = useState<'read' | 'edit'>('read')
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false)
+  const [processingFeedback, setProcessingFeedback] = useState(false)
   const [focusState, setFocusState] = useState<FocusState>('off')
   // Mobile: sidebar overlay state
   const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false)
@@ -1035,6 +1106,17 @@ export default function WritingView() {
     setMobileOutlineOpen(false)
   }
 
+  function loadVersion(versionNumber: number) {
+    if (!activeDraft) return
+    setLoadingDraft(true)
+    fetch(`/api/writing/drafts/${activeDraft.id}?version=${versionNumber}`)
+      .then(res => res.json())
+      .then(data => { setActiveDraft(data); setLoadingDraft(false) })
+      .catch(() => setLoadingDraft(false))
+    setVersionMenuOpen(false)
+    setMode('read')
+  }
+
   function handleNewFeedback(fb: Feedback) {
     if (activeDraft) {
       setActiveDraft({
@@ -1054,6 +1136,31 @@ export default function WritingView() {
         feedback: activeDraft.feedback.map(f => f.id === updated.id ? updated : f),
       })
     }
+  }
+
+  async function handleProcessFeedback() {
+    if (!activeDraft) return
+    setProcessingFeedback(true)
+    try {
+      const res = await fetch('/api/writing/process-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: activeDraft.project_id }),
+      })
+      if (res.ok) {
+        // Reload the draft to get updated feedback with resolutions
+        const data = await fetch(`/api/writing/drafts/${activeDraft.id}`).then(r => r.json())
+        setActiveDraft(data)
+        // Update draft list open_feedback counts
+        setDrafts(prev => prev.map(d => {
+          const openCount = data.feedback?.filter((f: Feedback) => f.status === 'open').length || 0
+          return d.id === activeDraft.id ? { ...d, open_feedback: openCount } : d
+        }))
+      }
+    } catch (e) {
+      console.error('Failed to process feedback', e)
+    }
+    setProcessingFeedback(false)
   }
 
   function handleDeleteFeedback(feedbackId: number) {
@@ -1224,7 +1331,7 @@ export default function WritingView() {
                   <p className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 mt-1">Highlight text to annotate.</p>
                 </div>
               ) : (
-                <FeedbackPanel items={feedback} onDelete={handleDeleteFeedback} />
+                <FeedbackPanel items={feedback} onDelete={handleDeleteFeedback} onProcess={handleProcessFeedback} processing={processingFeedback} />
               )}
             </div>
           </div>
@@ -1316,10 +1423,49 @@ export default function WritingView() {
                 </button>
               )}
 
-              <span className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 ml-auto shrink-0 hidden sm:inline">
-                {wordCount(activeDraft.word_count)} words
-                {activeDraft.current_version > 0 && ` \u00B7 v${activeDraft.current_version}`}
-              </span>
+              <div className="relative ml-auto shrink-0 hidden sm:block">
+                <button
+                  onClick={() => setVersionMenuOpen(!versionMenuOpen)}
+                  className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                >
+                  {wordCount(activeDraft.content?.word_count || activeDraft.word_count)} words
+                  {activeDraft.content && ` \u00B7 v${activeDraft.content.version_number}`}
+                  {activeDraft.versions.length > 1 && (
+                    <ChevronDown className="w-3 h-3 inline ml-0.5 -mt-0.5" />
+                  )}
+                </button>
+                {versionMenuOpen && activeDraft.versions.length > 1 && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setVersionMenuOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-40 w-64 bg-white dark:bg-[#222226] border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl py-1 max-h-60 overflow-y-auto">
+                      <div className="px-3 py-1.5 text-[0.625rem] text-zinc-400 dark:text-zinc-500 font-medium uppercase tracking-wider">Version History</div>
+                      {activeDraft.versions.map(v => (
+                        <button
+                          key={v.version_number}
+                          onClick={() => loadVersion(v.version_number)}
+                          className={`w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700/50 transition-colors ${
+                            activeDraft.content?.version_number === v.version_number ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[0.8125rem] font-medium text-zinc-800 dark:text-zinc-200">
+                              v{v.version_number}
+                              {v.version_number === activeDraft.current_version && (
+                                <span className="ml-1.5 text-[0.5625rem] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">latest</span>
+                              )}
+                            </span>
+                            <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500">{wordCount(v.word_count)} words</span>
+                          </div>
+                          {v.change_summary && (
+                            <p className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-2">{v.change_summary}</p>
+                          )}
+                          <p className="text-[0.5625rem] text-zinc-400 dark:text-zinc-500 mt-0.5">{timeAgo(v.created_at)}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
               {/* Desktop feedback panel toggle */}
               <button
                 onClick={() => setRightPanelOpen(!rightPanelOpen)}
@@ -1480,7 +1626,7 @@ export default function WritingView() {
                   <p className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 mt-1">Highlight text to annotate.</p>
                 </div>
               ) : (
-                <FeedbackPanel items={feedback} onDelete={handleDeleteFeedback} />
+                <FeedbackPanel items={feedback} onDelete={handleDeleteFeedback} onProcess={handleProcessFeedback} processing={processingFeedback} />
               )
             )}
 

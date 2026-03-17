@@ -3031,6 +3031,13 @@ class SoYHandler(BaseHTTPRequestHandler):
                     return
                 updates.append("status = ?")
                 params.append(data["status"])
+            if "content" in data:
+                updates.append("content = ?")
+                params.append(data["content"])
+            if "feedback_type" in data:
+                if data["feedback_type"] in ("note", "revision", "critique", "suggestion", "question"):
+                    updates.append("feedback_type = ?")
+                    params.append(data["feedback_type"])
             if "resolution" in data:
                 updates.append("resolution = ?")
                 params.append(data["resolution"])

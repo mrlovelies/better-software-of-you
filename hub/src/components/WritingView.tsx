@@ -247,21 +247,31 @@ function AnnotationPopover({
   draftId,
   onSubmit,
   onClose,
+  existingFeedback,
+  onUpdated,
 }: {
   selectedText: string
   position: { x: number; y: number }
   draftId: number
   onSubmit: (fb: Feedback) => void
   onClose: () => void
+  existingFeedback?: Feedback | null
+  onUpdated?: (fb: Feedback) => void
 }) {
-  const [note, setNote] = useState('')
-  const [type, setType] = useState<string>('note')
+  const isEditing = !!existingFeedback
+  const [note, setNote] = useState(existingFeedback?.content || '')
+  const [type, setType] = useState<string>(existingFeedback?.feedback_type || 'note')
   const [submitting, setSubmitting] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     textareaRef.current?.focus()
+    // Place cursor at end when editing
+    if (isEditing && textareaRef.current) {
+      const len = textareaRef.current.value.length
+      textareaRef.current.setSelectionRange(len, len)
+    }
   }, [])
 
   useEffect(() => {
@@ -276,21 +286,39 @@ function AnnotationPopover({
     if (!note.trim()) return
     setSubmitting(true)
     try {
-      const res = await fetch('/api/writing/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          draft_id: draftId,
-          highlighted_text: selectedText,
-          content: note.trim(),
-          feedback_type: type,
-          author: 'user',
-        }),
-      })
-      if (res.ok) {
-        const fb = await res.json()
-        onSubmit(fb)
-        onClose()
+      if (isEditing && existingFeedback) {
+        // PATCH existing feedback
+        const res = await fetch(`/api/writing/feedback/${existingFeedback.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: note.trim(),
+            feedback_type: type,
+          }),
+        })
+        if (res.ok) {
+          const updated = await res.json()
+          onUpdated?.(updated)
+          onClose()
+        }
+      } else {
+        // POST new feedback
+        const res = await fetch('/api/writing/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            draft_id: draftId,
+            highlighted_text: selectedText,
+            content: note.trim(),
+            feedback_type: type,
+            author: 'user',
+          }),
+        })
+        if (res.ok) {
+          const fb = await res.json()
+          onSubmit(fb)
+          onClose()
+        }
       }
     } finally {
       setSubmitting(false)
@@ -356,7 +384,7 @@ function AnnotationPopover({
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <Send className="w-3 h-3" />
-          {submitting ? 'Saving...' : 'Add Note'}
+          {submitting ? 'Saving...' : isEditing ? 'Update' : 'Add Note'}
         </button>
       </div>
     </div>
@@ -451,19 +479,40 @@ function ProseReader({
   feedback,
   draftId,
   onNewFeedback,
+  onUpdateFeedback,
   focusState,
 }: {
   content: string
   feedback: Feedback[]
   draftId: number
   onNewFeedback: (fb: Feedback) => void
+  onUpdateFeedback: (fb: Feedback) => void
   focusState: FocusState
 }) {
-  const [popover, setPopover] = useState<{ text: string; x: number; y: number } | null>(null)
+  const [popover, setPopover] = useState<{ text: string; x: number; y: number; editFeedback?: Feedback } | null>(null)
   const proseRef = useRef<HTMLDivElement>(null)
   const [activeParagraph, setActiveParagraph] = useState<number>(0)
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    // Check if user clicked on a highlight mark
+    const target = e.target as HTMLElement
+    if (target.tagName === 'MARK' && target.dataset.highlight) {
+      const highlightPrefix = target.dataset.highlight.replace(/&quot;/g, '"')
+      const matchingFeedback = feedback.find(f =>
+        f.highlighted_text && f.status === 'open' && f.highlighted_text.slice(0, 40) === highlightPrefix
+      )
+      if (matchingFeedback) {
+        const rect = target.getBoundingClientRect()
+        setPopover({
+          text: matchingFeedback.highlighted_text!,
+          x: rect.left + rect.width / 2 - 160,
+          y: rect.bottom,
+          editFeedback: matchingFeedback,
+        })
+        return
+      }
+    }
+
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed || !sel.toString().trim()) {
       return
@@ -478,7 +527,7 @@ function ProseReader({
       x: rect.left + rect.width / 2 - 160,
       y: rect.bottom,
     })
-  }, [])
+  }, [feedback])
 
   // IntersectionObserver for focus mode (#4)
   useEffect(() => {
@@ -554,7 +603,7 @@ function ProseReader({
             for (const ht of highlightedTexts) {
               const escaped = ht.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
               html = html.replace(new RegExp(`(${escaped})`, 'g'),
-                '<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100">$1</mark>')
+                `<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100 scroll-mt-32 transition-all duration-300" data-highlight="${ht.slice(0, 40).replace(/"/g, '&quot;')}">$1</mark>`)
             }
             const isFocused = focusState === 'off' || paraIndex === activeParagraph
             nodes.push(
@@ -597,7 +646,7 @@ function ProseReader({
       for (const ht of highlightedTexts) {
         const escaped = ht.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         html = html.replace(new RegExp(`(${escaped})`, 'g'),
-          '<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100">$1</mark>')
+          `<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100 scroll-mt-32 transition-all duration-300" data-highlight="${ht.slice(0, 40).replace(/"/g, '&quot;')}">$1</mark>`)
       }
 
       const idx = paraIndex++
@@ -623,6 +672,8 @@ function ProseReader({
           draftId={draftId}
           onSubmit={onNewFeedback}
           onClose={() => { setPopover(null); window.getSelection()?.removeAllRanges() }}
+          existingFeedback={popover.editFeedback}
+          onUpdated={onUpdateFeedback}
         />
       )}
     </div>
@@ -899,7 +950,19 @@ function FeedbackPanel({ items, onDelete }: { items: Feedback[]; onDelete: (id: 
               </button>
             </div>
             {f.highlighted_text && (
-              <p className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 italic line-clamp-2 mb-1 pl-5">"{f.highlighted_text.slice(0, 100)}{f.highlighted_text.length > 100 ? '...' : ''}"</p>
+              <p
+                className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 italic line-clamp-2 mb-1 pl-5 cursor-pointer hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                onClick={() => {
+                  const prefix = f.highlighted_text!.slice(0, 40).replace(/"/g, '&quot;')
+                  const mark = document.querySelector(`mark[data-highlight="${CSS.escape(prefix)}"]`) as HTMLElement
+                  if (mark) {
+                    mark.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    mark.classList.add('ring-2', 'ring-amber-400', 'ring-offset-1', 'dark:ring-offset-zinc-900')
+                    setTimeout(() => mark.classList.remove('ring-2', 'ring-amber-400', 'ring-offset-1', 'dark:ring-offset-zinc-900'), 1500)
+                  }
+                }}
+                title="Click to scroll to highlight"
+              >"{f.highlighted_text.slice(0, 100)}{f.highlighted_text.length > 100 ? '...' : ''}"</p>
             )}
             <p className="text-[0.8125rem] text-zinc-800 dark:text-zinc-200 pl-5">{f.content}</p>
           </div>
@@ -981,6 +1044,15 @@ export default function WritingView() {
       setDrafts(prev => prev.map(d =>
         d.id === activeDraft.id ? { ...d, open_feedback: d.open_feedback + 1 } : d
       ))
+    }
+  }
+
+  function handleUpdateFeedback(updated: Feedback) {
+    if (activeDraft) {
+      setActiveDraft({
+        ...activeDraft,
+        feedback: activeDraft.feedback.map(f => f.id === updated.id ? updated : f),
+      })
     }
   }
 
@@ -1298,6 +1370,7 @@ export default function WritingView() {
                   feedback={feedback}
                   draftId={activeDraft.id}
                   onNewFeedback={handleNewFeedback}
+                  onUpdateFeedback={handleUpdateFeedback}
                   focusState={focusState}
                 />
               ) : (

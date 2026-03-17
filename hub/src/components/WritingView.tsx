@@ -3,7 +3,7 @@ import {
   PenTool, ChevronRight, ChevronDown, MessageSquare, BookOpen,
   Users, Link2, X, Send, FileText, AlertTriangle, Lightbulb,
   HelpCircle, Edit3, StickyNote, Eye, Tag, Bold, Italic, Minus,
-  Save, Check, Trash2,
+  Save, Check, Trash2, Menu, AlignLeft, Hash,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────
@@ -120,11 +120,53 @@ const feedbackColors: Record<string, string> = {
   question: 'text-purple-500 dark:text-purple-400',
 }
 
+// Left border colors for feedback items (#6 right panel polish)
+const feedbackBorderColors: Record<string, string> = {
+  note: 'border-l-zinc-300 dark:border-l-zinc-600',
+  revision: 'border-l-amber-400 dark:border-l-amber-500',
+  critique: 'border-l-red-400 dark:border-l-red-500',
+  suggestion: 'border-l-blue-400 dark:border-l-blue-500',
+  question: 'border-l-purple-400 dark:border-l-purple-500',
+}
+
 const linkTypeColors: Record<string, string> = {
   references: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400',
   establishes: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400',
   contradicts: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400',
   extends: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400',
+}
+
+// Focus mode states: off -> focus -> typewriter -> off
+type FocusState = 'off' | 'focus' | 'typewriter'
+function nextFocusState(current: FocusState): FocusState {
+  if (current === 'off') return 'focus'
+  if (current === 'focus') return 'typewriter'
+  return 'off'
+}
+
+// ── useScrollDirection hook (for mobile bottom bar) ────────
+
+function useScrollDirection() {
+  const [visible, setVisible] = useState(true)
+  const lastScrollY = useRef(0)
+
+  useEffect(() => {
+    function handleScroll() {
+      const currentY = window.scrollY
+      if (currentY < 10) {
+        setVisible(true)
+      } else if (currentY > lastScrollY.current + 5) {
+        setVisible(false) // scrolling down
+      } else if (currentY < lastScrollY.current - 5) {
+        setVisible(true) // scrolling up
+      }
+      lastScrollY.current = currentY
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  return visible
 }
 
 // ── Text <-> HTML conversion ───────────────────────────────
@@ -169,7 +211,7 @@ function FloatingToolbar({
   return (
     <div
       style={style}
-      className="flex items-center gap-0.5 bg-zinc-900 dark:bg-zinc-100 rounded-lg px-1.5 py-1 shadow-xl"
+      className="flex items-center gap-0.5 bg-zinc-900/90 dark:bg-zinc-100/90 backdrop-blur-sm rounded-xl px-1.5 py-1 shadow-xl animate-in"
     >
       <button
         onMouseDown={e => { e.preventDefault(); onBold() }}
@@ -265,7 +307,7 @@ function AnnotationPopover({
   const types = ['note', 'revision', 'critique', 'suggestion', 'question']
 
   return (
-    <div ref={ref} style={style} className="w-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3">
+    <div ref={ref} style={style} className="w-80 bg-white dark:bg-[#222226] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3">
       <div className="flex items-start gap-2 mb-2">
         <div className="flex-1 min-w-0">
           <p className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 line-clamp-2 italic">"{selectedText.slice(0, 120)}{selectedText.length > 120 ? '...' : ''}"</p>
@@ -342,6 +384,7 @@ function OutlineItem({
   const hasChildren = children.length > 0
   const isActive = activeDraftId === draft.id
   const isChapter = draft.draft_type === 'chapter'
+  const hasContent = draft.word_count > 0 || draft.current_version > 0
 
   // Auto-expand when a child becomes active
   useEffect(() => {
@@ -359,7 +402,7 @@ function OutlineItem({
         }}
         className={`flex items-center gap-1.5 w-full text-left px-2 py-1.5 rounded-md text-[0.8125rem] transition-all
           ${isActive
-            ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400 font-semibold'
+            ? 'border-l-2 border-l-blue-500 dark:border-l-blue-400 bg-transparent text-blue-600 dark:text-blue-400 font-semibold'
             : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
           }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -370,6 +413,10 @@ function OutlineItem({
           <FileText className="w-3.5 h-3.5 shrink-0 text-zinc-400 dark:text-zinc-500" />
         )}
         <span className="truncate flex-1">{draft.title}</span>
+        {/* Content indicator dot (#8) */}
+        {!isChapter && (
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${hasContent ? 'bg-emerald-400 dark:bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} />
+        )}
         {draft.word_count > 0 && !isChapter && (
           <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500 shrink-0">{wordCount(draft.word_count)}</span>
         )}
@@ -404,14 +451,17 @@ function ProseReader({
   feedback,
   draftId,
   onNewFeedback,
+  focusState,
 }: {
   content: string
   feedback: Feedback[]
   draftId: number
   onNewFeedback: (fb: Feedback) => void
+  focusState: FocusState
 }) {
   const [popover, setPopover] = useState<{ text: string; x: number; y: number } | null>(null)
   const proseRef = useRef<HTMLDivElement>(null)
+  const [activeParagraph, setActiveParagraph] = useState<number>(0)
 
   const handleMouseUp = useCallback(() => {
     const sel = window.getSelection()
@@ -430,6 +480,58 @@ function ProseReader({
     })
   }, [])
 
+  // IntersectionObserver for focus mode (#4)
+  useEffect(() => {
+    if (focusState === 'off' || !proseRef.current) return
+
+    const paragraphs = proseRef.current.querySelectorAll('p, .section-break')
+    if (paragraphs.length === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Find the entry closest to the viewport center
+        let bestIdx = activeParagraph
+        let bestDistance = Infinity
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const rect = entry.boundingClientRect
+            const viewportCenter = window.innerHeight * 0.4
+            const elemCenter = rect.top + rect.height / 2
+            const distance = Math.abs(elemCenter - viewportCenter)
+            if (distance < bestDistance) {
+              bestDistance = distance
+              const idx = Array.from(paragraphs).indexOf(entry.target as Element)
+              if (idx >= 0) bestIdx = idx
+            }
+          }
+        })
+        setActiveParagraph(bestIdx)
+      },
+      {
+        rootMargin: '-20% 0px -20% 0px',
+        threshold: [0, 0.25, 0.5, 0.75, 1.0],
+      }
+    )
+
+    paragraphs.forEach(p => observer.observe(p))
+    return () => observer.disconnect()
+  }, [focusState, content])
+
+  // Typewriter scroll (#5): keep active paragraph at 40% from top
+  useEffect(() => {
+    if (focusState !== 'typewriter' || !proseRef.current) return
+    const paragraphs = proseRef.current.querySelectorAll('p, .section-break')
+    const target = paragraphs[activeParagraph]
+    if (!target) return
+
+    const rect = target.getBoundingClientRect()
+    const viewportTarget = window.innerHeight * 0.4
+    const scrollBy = rect.top - viewportTarget + rect.height / 2
+    if (Math.abs(scrollBy) > 20) {
+      window.scrollBy({ top: scrollBy, behavior: 'smooth' })
+    }
+  }, [activeParagraph, focusState])
+
   const highlightedTexts = feedback
     .filter(f => f.highlighted_text && f.status === 'open')
     .map(f => f.highlighted_text!)
@@ -437,15 +539,16 @@ function ProseReader({
   function renderProse(text: string): React.ReactNode[] {
     // Handle HTML content (from edit mode saves)
     if (/<\w+[^>]*>/.test(text)) {
-      // Parse HTML content — split on top-level tags
       const div = document.createElement('div')
       div.innerHTML = text
       const nodes: React.ReactNode[] = []
+      let paraIndex = 0
       div.childNodes.forEach((node, i) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
           const el = node as HTMLElement
           if (el.tagName === 'HR') {
-            nodes.push(<div key={i} className="text-center text-zinc-400 dark:text-zinc-500 py-2 text-sm tracking-widest">&bull; &bull; &bull;</div>)
+            nodes.push(<div key={i} className="section-break text-center text-zinc-400 dark:text-zinc-500 py-4 text-sm tracking-[0.3em]">&bull; &bull; &bull;</div>)
+            paraIndex++
           } else {
             let html = el.innerHTML
             for (const ht of highlightedTexts) {
@@ -453,7 +556,15 @@ function ProseReader({
               html = html.replace(new RegExp(`(${escaped})`, 'g'),
                 '<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100">$1</mark>')
             }
-            nodes.push(<p key={i} className="mb-4 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />)
+            const isFocused = focusState === 'off' || paraIndex === activeParagraph
+            nodes.push(
+              <p
+                key={i}
+                className={`mb-5 leading-[1.58] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`}
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+            )
+            paraIndex++
           }
         }
       })
@@ -461,18 +572,25 @@ function ProseReader({
     }
 
     // Handle plain text content (legacy)
+    let paraIndex = 0
     if (highlightedTexts.length === 0) {
       return text.split('\n\n').map((para, i) => {
         if (para.trim().match(/^[•·\s]+$/)) {
-          return <div key={i} className="text-center text-zinc-400 dark:text-zinc-500 py-2 text-sm tracking-widest">* * *</div>
+          const idx = paraIndex++
+          const isFocused = focusState === 'off' || idx === activeParagraph
+          return <div key={i} className={`section-break text-center text-zinc-400 dark:text-zinc-500 py-4 text-sm tracking-[0.3em] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`}>* * *</div>
         }
-        return <p key={i} className="mb-4 leading-relaxed">{para.trim()}</p>
+        const idx = paraIndex++
+        const isFocused = focusState === 'off' || idx === activeParagraph
+        return <p key={i} className={`mb-5 leading-[1.58] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`}>{para.trim()}</p>
       })
     }
 
     return text.split('\n\n').map((para, i) => {
       if (para.trim().match(/^[•·\s]+$/)) {
-        return <div key={i} className="text-center text-zinc-400 dark:text-zinc-500 py-2 text-sm tracking-widest">* * *</div>
+        const idx = paraIndex++
+        const isFocused = focusState === 'off' || idx === activeParagraph
+        return <div key={i} className={`section-break text-center text-zinc-400 dark:text-zinc-500 py-4 text-sm tracking-[0.3em] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`}>* * *</div>
       }
 
       let html = para.trim()
@@ -482,7 +600,9 @@ function ProseReader({
           '<mark class="bg-amber-200 dark:bg-amber-500/40 rounded px-0.5 dark:text-amber-100">$1</mark>')
       }
 
-      return <p key={i} className="mb-4 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
+      const idx = paraIndex++
+      const isFocused = focusState === 'off' || idx === activeParagraph
+      return <p key={i} className={`mb-5 leading-[1.58] transition-opacity duration-200 ${isFocused ? 'opacity-100' : 'opacity-[0.3]'}`} dangerouslySetInnerHTML={{ __html: html }} />
     })
   }
 
@@ -491,7 +611,7 @@ function ProseReader({
       <div
         ref={proseRef}
         onMouseUp={handleMouseUp}
-        className="prose-reader text-[0.9375rem] text-zinc-800 dark:text-zinc-200 font-sans leading-relaxed selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text"
+        className={`prose-reader text-[1.1875rem] text-zinc-800 dark:text-zinc-200 font-sans leading-[1.58] selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text antialiased ${focusState === 'typewriter' ? 'pb-[50vh]' : ''}`}
       >
         {renderProse(content)}
       </div>
@@ -705,7 +825,7 @@ function ProseEditor({
         suppressContentEditableWarning
         onInput={handleInput}
         onKeyDown={handleKeyDown}
-        className="prose-editor text-[0.9375rem] text-zinc-800 dark:text-zinc-200 font-sans leading-relaxed selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text outline-none border-l-2 border-blue-200 dark:border-blue-800/40 pl-6 min-h-[400px] [&_p]:mb-4 [&_hr]:border-none [&_hr]:text-center [&_hr]:py-2 [&_hr]:my-4 [&_hr]:[content:''] [&_hr]:block [&_hr]:h-6 [&_strong]:font-bold [&_em]:italic"
+        className="prose-editor text-[1.1875rem] text-zinc-800 dark:text-zinc-200 font-sans leading-[1.58] selection:bg-blue-200 dark:selection:bg-blue-800/50 cursor-text outline-none border-l-2 border-blue-200 dark:border-blue-800/40 pl-6 min-h-[400px] antialiased [&_p]:mb-5 [&_hr]:border-none [&_hr]:text-center [&_hr]:py-4 [&_hr]:my-4 [&_hr]:[content:''] [&_hr]:block [&_hr]:h-6 [&_strong]:font-bold [&_em]:italic"
         style={{
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
@@ -725,11 +845,18 @@ function ProseEditor({
           content: '\\2022  \\2022  \\2022';
           color: #a1a1aa;
           font-size: 0.875rem;
-          letter-spacing: 0.25em;
+          letter-spacing: 0.3em;
         }
         .dark .prose-editor hr::after {
           color: #71717a;
         }
+
+        /* Floating toolbar entrance animation */
+        @keyframes floatIn {
+          from { opacity: 0; transform: translateY(4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-in { animation: floatIn 150ms ease-out; }
       `}</style>
 
       {/* Floating format toolbar */}
@@ -758,7 +885,7 @@ function FeedbackPanel({ items, onDelete }: { items: Feedback[]; onDelete: (id: 
       {open.map(f => {
         const Icon = feedbackIcons[f.feedback_type] || StickyNote
         return (
-          <div key={f.id} className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2.5">
+          <div key={f.id} className={`group bg-white dark:bg-[#222226] border border-zinc-200 dark:border-zinc-700 border-l-2 ${feedbackBorderColors[f.feedback_type] || 'border-l-zinc-300 dark:border-l-zinc-600'} rounded-lg px-3 py-2.5`}>
             <div className="flex items-center gap-1.5 mb-1">
               <Icon className={`w-3.5 h-3.5 ${feedbackColors[f.feedback_type]}`} />
               <span className="text-[0.6875rem] font-medium text-zinc-700 dark:text-zinc-300 capitalize">{f.feedback_type}</span>
@@ -807,6 +934,11 @@ export default function WritingView() {
   const [panelTab, setPanelTab] = useState<'feedback' | 'lore' | 'characters'>('feedback')
   const [mode, setMode] = useState<'read' | 'edit'>('read')
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
+  const [focusState, setFocusState] = useState<FocusState>('off')
+  // Mobile: sidebar overlay state
+  const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false)
+  const [mobileFeedbackOpen, setMobileFeedbackOpen] = useState(false)
+  const bottomBarVisible = useScrollDirection()
 
   // Load all drafts (for now, project 209 — Braska's Pilgrimage)
   useEffect(() => {
@@ -836,6 +968,8 @@ export default function WritingView() {
       .then(res => res.json())
       .then(data => { setActiveDraft(data); setLoadingDraft(false) })
       .catch(() => setLoadingDraft(false))
+    // Close mobile overlay after selection
+    setMobileOutlineOpen(false)
   }
 
   function handleNewFeedback(fb: Feedback) {
@@ -893,6 +1027,16 @@ export default function WritingView() {
   const chapters = drafts.filter(d => !d.parent_id)
   const getChildren = (parentId: number) => drafts.filter(d => d.parent_id === parentId)
 
+  // Separate writing samples (no children, standalone) from parts/chapters (have children)
+  const standaloneDrafts = chapters.filter(ch => {
+    const children = getChildren(ch.id)
+    return children.length === 0 && ch.draft_type !== 'chapter'
+  })
+  const structuredChapters = chapters.filter(ch => {
+    const children = getChildren(ch.id)
+    return children.length > 0 || ch.draft_type === 'chapter'
+  })
+
   // Stats
   const totalWords = drafts.reduce((sum, d) => d.parent_id ? sum + d.word_count : sum, 0)
   const totalScenes = drafts.filter(d => d.parent_id).length
@@ -910,45 +1054,135 @@ export default function WritingView() {
   const characterList: Character[] = Array.isArray(chars) ? chars : []
   const loreLinks: LoreLink[] = activeDraft?.lore_links || []
   const feedback: Feedback[] = activeDraft?.feedback || []
+  const openFeedbackCount = feedback.filter(f => f.status === 'open').length
+
+  // Outline panel content (shared between desktop sidebar and mobile overlay)
+  const outlineContent = (
+    <>
+      <div className="p-3 border-b border-zinc-200 dark:border-zinc-700">
+        <div className="flex items-center gap-2">
+          <PenTool className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Braska's Pilgrimage</h2>
+        </div>
+        <div className="flex gap-3 mt-1.5 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
+          <span>{totalScenes} scenes</span>
+          <span>{wordCount(totalWords)} words</span>
+          {totalFeedback > 0 && <span className="text-amber-600 dark:text-amber-400">{totalFeedback} notes</span>}
+        </div>
+      </div>
+      <nav className="p-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 80px)' }}>
+        {/* Standalone items (writing samples) */}
+        {standaloneDrafts.length > 0 && (
+          <>
+            {standaloneDrafts.map(d => (
+              <OutlineItem
+                key={d.id}
+                draft={d}
+                children={[]}
+                activeDraftId={activeDraft?.id ?? null}
+                onSelect={loadDraft}
+              />
+            ))}
+            {/* Separator between samples and structured content (#8) */}
+            {structuredChapters.length > 0 && (
+              <div className="mx-2 my-2 border-b border-zinc-200 dark:border-zinc-700" />
+            )}
+          </>
+        )}
+        {/* Structured chapters/parts */}
+        {structuredChapters.map(ch => (
+          <OutlineItem
+            key={ch.id}
+            draft={ch}
+            children={getChildren(ch.id)}
+            activeDraftId={activeDraft?.id ?? null}
+            onSelect={loadDraft}
+          />
+        ))}
+      </nav>
+    </>
+  )
 
   return (
     <main className="flex-1 min-h-screen flex flex-col lg:flex-row">
-      {/* ── Outline Panel ── */}
-      <div className={`${outlineOpen ? 'w-64' : 'w-0'} shrink-0 border-r border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/80 overflow-hidden transition-all`}>
-        <div className="p-3 border-b border-zinc-200 dark:border-zinc-700">
-          <div className="flex items-center gap-2">
-            <PenTool className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Braska's Pilgrimage</h2>
-          </div>
-          <div className="flex gap-3 mt-1.5 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
-            <span>{totalScenes} scenes</span>
-            <span>{wordCount(totalWords)} words</span>
-            {totalFeedback > 0 && <span className="text-amber-600 dark:text-amber-400">{totalFeedback} notes</span>}
+      {/* ── Mobile Outline Overlay ── */}
+      {mobileOutlineOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setMobileOutlineOpen(false)}
+          />
+          <div className="absolute inset-y-0 left-0 w-72 bg-zinc-50 dark:bg-[#1c1c20] border-r border-zinc-200 dark:border-zinc-700 shadow-xl overflow-y-auto slide-in-from-left">
+            <div className="flex items-center justify-between p-3 border-b border-zinc-200 dark:border-zinc-700">
+              <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Outline</span>
+              <button
+                onClick={() => setMobileOutlineOpen(false)}
+                className="p-1 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {outlineContent}
           </div>
         </div>
-        <nav className="p-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 80px)' }}>
-          {chapters.map(ch => (
-            <OutlineItem
-              key={ch.id}
-              draft={ch}
-              children={getChildren(ch.id)}
-              activeDraftId={activeDraft?.id ?? null}
-              onSelect={loadDraft}
-            />
-          ))}
-        </nav>
+      )}
+
+      {/* ── Mobile Feedback Overlay ── */}
+      {mobileFeedbackOpen && activeDraft && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setMobileFeedbackOpen(false)}
+          />
+          <div className="absolute inset-y-0 right-0 w-80 bg-zinc-50 dark:bg-[#1c1c20] border-l border-zinc-200 dark:border-zinc-700 shadow-xl overflow-y-auto slide-in-from-right">
+            <div className="flex items-center justify-between p-3 border-b border-zinc-200 dark:border-zinc-700">
+              <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Notes</span>
+              <button
+                onClick={() => setMobileFeedbackOpen(false)}
+                className="p-1 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-3">
+              {feedback.length === 0 ? (
+                <div className="text-center py-8">
+                  <StickyNote className="w-10 h-10 text-zinc-300 dark:text-zinc-600 mx-auto mb-3" />
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">No notes yet</p>
+                  <p className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 mt-1">Highlight text to annotate.</p>
+                </div>
+              ) : (
+                <FeedbackPanel items={feedback} onDelete={handleDeleteFeedback} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Desktop Outline Panel ── */}
+      <div className={`hidden lg:block ${outlineOpen ? 'w-64' : 'w-0'} shrink-0 border-r border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-[#1c1c20] overflow-hidden transition-all`}>
+        {outlineContent}
       </div>
 
       {/* ── Main Reading/Editing Area ── */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Toolbar */}
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shrink-0">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#18181c] shrink-0">
+          {/* Desktop outline toggle */}
           <button
             onClick={() => setOutlineOpen(!outlineOpen)}
-            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="hidden lg:block p-1.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             title={outlineOpen ? 'Hide outline' : 'Show outline'}
           >
             <BookOpen className="w-4 h-4" />
+          </button>
+          {/* Mobile outline toggle */}
+          <button
+            onClick={() => setMobileOutlineOpen(true)}
+            className="lg:hidden p-1.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title="Show outline"
+          >
+            <Menu className="w-4 h-4" />
           </button>
 
           {activeDraft && (
@@ -957,12 +1191,12 @@ export default function WritingView() {
                 {activeDraft.title}
               </h1>
               {activeDraft.pov_character && (
-                <span className="text-[0.6875rem] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 shrink-0">
+                <span className="text-[0.6875rem] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 shrink-0 hidden sm:inline-flex items-center">
                   <Eye className="w-3 h-3 inline -mt-0.5 mr-0.5" />
                   {activeDraft.pov_character}
                 </span>
               )}
-              <span className={`text-[0.625rem] px-2 py-0.5 rounded-full font-medium shrink-0 ${statusColors[activeDraft.status]}`}>
+              <span className={`text-[0.625rem] px-2 py-0.5 rounded-full font-medium shrink-0 hidden sm:inline ${statusColors[activeDraft.status]}`}>
                 {activeDraft.status}
               </span>
 
@@ -992,13 +1226,32 @@ export default function WritingView() {
                 </div>
               )}
 
-              <span className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 ml-auto shrink-0">
+              {/* Focus mode toggle (#4/#5) */}
+              {mode === 'read' && activeDraft.content && (
+                <button
+                  onClick={() => setFocusState(nextFocusState(focusState))}
+                  className={`p-1.5 rounded-md shrink-0 transition-colors hidden sm:block ${
+                    focusState !== 'off'
+                      ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                      : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                  }`}
+                  title={focusState === 'off' ? 'Focus mode' : focusState === 'focus' ? 'Typewriter mode' : 'Disable focus'}
+                >
+                  <Eye className="w-4 h-4" />
+                  {focusState !== 'off' && (
+                    <span className="sr-only">{focusState === 'focus' ? 'Focus' : 'Typewriter'}</span>
+                  )}
+                </button>
+              )}
+
+              <span className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 ml-auto shrink-0 hidden sm:inline">
                 {wordCount(activeDraft.word_count)} words
                 {activeDraft.current_version > 0 && ` \u00B7 v${activeDraft.current_version}`}
               </span>
+              {/* Desktop feedback panel toggle */}
               <button
                 onClick={() => setRightPanelOpen(!rightPanelOpen)}
-                className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 shrink-0"
+                className="hidden lg:block p-1.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 shrink-0"
                 title={rightPanelOpen ? 'Hide panel' : 'Show panel'}
               >
                 <MessageSquare className="w-4 h-4" />
@@ -1008,17 +1261,36 @@ export default function WritingView() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-850 dark:bg-[#1e2024]">
+        <div className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-[#1a1a1e]">
           {loadingDraft ? (
             <div className="flex items-center justify-center py-20">
               <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading...</p>
             </div>
           ) : activeDraft?.content ? (
-            <div className="max-w-2xl mx-auto px-6 py-8 lg:px-10">
-              {activeDraft.synopsis && (
-                <p className="text-[0.8125rem] text-zinc-500 dark:text-zinc-400 italic mb-6 pb-4 border-b border-zinc-100 dark:border-zinc-800">
-                  {activeDraft.synopsis}
-                </p>
+            <div className="max-w-full md:max-w-prose mx-auto px-5 lg:px-10 py-8">
+              {/* Synopsis/Chapter Header (#7) */}
+              {(activeDraft.synopsis || activeDraft.title) && (
+                <div className={`mb-8 pb-6 border-b border-zinc-100 dark:border-zinc-800 ${activeDraft.pov_character ? 'border-l-2 border-l-indigo-400 dark:border-l-indigo-500 pl-4' : ''}`}>
+                  <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mb-2">
+                    {activeDraft.title}
+                  </h2>
+                  <div className="flex items-center gap-2 mb-2">
+                    {activeDraft.pov_character && (
+                      <span className="text-[0.6875rem] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 inline-flex items-center">
+                        <Eye className="w-3 h-3 mr-0.5" />
+                        {activeDraft.pov_character}
+                      </span>
+                    )}
+                    <span className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500">
+                      {wordCount(activeDraft.word_count)} words
+                    </span>
+                  </div>
+                  {activeDraft.synopsis && (
+                    <p className="text-[0.8125rem] text-zinc-500 dark:text-zinc-400 italic leading-relaxed">
+                      {activeDraft.synopsis}
+                    </p>
+                  )}
+                </div>
               )}
               {mode === 'read' ? (
                 <ProseReader
@@ -1026,6 +1298,7 @@ export default function WritingView() {
                   feedback={feedback}
                   draftId={activeDraft.id}
                   onNewFeedback={handleNewFeedback}
+                  focusState={focusState}
                 />
               ) : (
                 <ProseEditor
@@ -1049,31 +1322,76 @@ export default function WritingView() {
             </div>
           )}
         </div>
+
+        {/* ── Mobile Bottom Bar (#3b) ── */}
+        {activeDraft && (
+          <div
+            className={`lg:hidden fixed bottom-0 inset-x-0 h-14 bg-[#18181c]/95 backdrop-blur-sm border-t border-zinc-700 flex items-center justify-around px-4 z-30 transition-transform duration-200 ${
+              bottomBarVisible ? 'translate-y-0' : 'translate-y-full'
+            }`}
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            <button
+              onClick={() => setMobileOutlineOpen(true)}
+              className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              <AlignLeft className="w-5 h-5" />
+              <span className="text-[0.5625rem]">Outline</span>
+            </button>
+            <div className="flex flex-col items-center gap-0.5 text-zinc-500">
+              <Hash className="w-5 h-5" />
+              <span className="text-[0.5625rem]">{wordCount(activeDraft.word_count)}</span>
+            </div>
+            {mode === 'read' && (
+              <button
+                onClick={() => setFocusState(nextFocusState(focusState))}
+                className={`flex flex-col items-center gap-0.5 transition-colors ${
+                  focusState !== 'off' ? 'text-blue-400' : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Eye className="w-5 h-5" />
+                <span className="text-[0.5625rem]">{focusState === 'off' ? 'Focus' : focusState === 'focus' ? 'Focus' : 'Typewriter'}</span>
+              </button>
+            )}
+            <button
+              onClick={() => setMobileFeedbackOpen(true)}
+              className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-zinc-200 transition-colors relative"
+            >
+              <MessageSquare className="w-5 h-5" />
+              <span className="text-[0.5625rem]">Notes</span>
+              {openFeedbackCount > 0 && (
+                <span className="absolute -top-1 -right-1 text-[0.5rem] w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center font-medium">
+                  {openFeedbackCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ── Right Panel: Feedback / Lore / Characters ── */}
+      {/* ── Right Panel: Feedback / Lore / Characters (desktop) ── */}
       {activeDraft && (
-        <div className={`${rightPanelOpen ? 'w-72' : 'w-0'} shrink-0 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/80 flex flex-col overflow-hidden transition-all`}>
-          {/* Tab bar */}
-          <div className="flex border-b border-zinc-200 dark:border-zinc-700 shrink-0">
+        <div className={`hidden lg:flex ${rightPanelOpen ? 'w-72' : 'w-0'} shrink-0 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-[#1c1c20] flex-col overflow-hidden transition-all`}>
+          {/* Tab bar — pill-style (#9) */}
+          <div className="flex gap-1 p-2 shrink-0">
             {[
-              { key: 'feedback' as const, icon: MessageSquare, label: 'Notes', count: feedback.filter(f => f.status === 'open').length },
+              { key: 'feedback' as const, icon: MessageSquare, label: 'Notes', count: openFeedbackCount },
               { key: 'lore' as const, icon: Link2, label: 'Lore', count: loreLinks.length },
               { key: 'characters' as const, icon: Users, label: 'Cast', count: characterList.length },
             ].map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setPanelTab(tab.key)}
-                className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-[0.6875rem] font-medium transition-colors
+                className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-full text-[0.6875rem] font-medium transition-colors
                   ${panelTab === tab.key
-                    ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 -mb-px'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
+                    ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300'
                   }`}
               >
                 <tab.icon className="w-3.5 h-3.5" />
                 {tab.label}
                 {tab.count > 0 && (
-                  <span className="text-[0.5625rem] px-1 rounded-full bg-zinc-200 dark:bg-zinc-700">{tab.count}</span>
+                  <span className="text-[0.5625rem] px-1 rounded-full bg-zinc-300 dark:bg-zinc-600">{tab.count}</span>
                 )}
               </button>
             ))}
@@ -1084,9 +1402,9 @@ export default function WritingView() {
             {panelTab === 'feedback' && (
               feedback.length === 0 ? (
                 <div className="text-center py-8">
-                  <MessageSquare className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">No notes yet.</p>
-                  <p className="text-[0.625rem] text-zinc-400 dark:text-zinc-500 mt-1">Highlight text to annotate.</p>
+                  <StickyNote className="w-10 h-10 text-zinc-300 dark:text-zinc-600 mx-auto mb-3" />
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">No notes yet</p>
+                  <p className="text-[0.6875rem] text-zinc-400 dark:text-zinc-500 mt-1">Highlight text to annotate.</p>
                 </div>
               ) : (
                 <FeedbackPanel items={feedback} onDelete={handleDeleteFeedback} />
@@ -1102,7 +1420,7 @@ export default function WritingView() {
               ) : (
                 <div className="space-y-2">
                   {loreLinks.map(l => (
-                    <div key={l.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2">
+                    <div key={l.id} className="bg-white dark:bg-[#222226] border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2">
                       <div className="flex items-center gap-1.5">
                         <span className={`text-[0.5625rem] px-1.5 py-0.5 rounded font-medium ${linkTypeColors[l.link_type]}`}>
                           {l.link_type}
@@ -1127,7 +1445,7 @@ export default function WritingView() {
               ) : (
                 <div className="space-y-2">
                   {characterList.map(c => (
-                    <div key={c.id} className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2">
+                    <div key={c.id} className="flex items-center gap-2 bg-white dark:bg-[#222226] border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2">
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[0.6875rem] font-semibold shrink-0
                         ${c.role === 'pov' ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400'
                           : c.role === 'featured' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
@@ -1148,6 +1466,20 @@ export default function WritingView() {
           </div>
         </div>
       )}
+
+      {/* Slide-in animation styles */}
+      <style>{`
+        @keyframes slideInFromLeft {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
+        }
+        @keyframes slideInFromRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        .slide-in-from-left { animation: slideInFromLeft 200ms ease-out; }
+        .slide-in-from-right { animation: slideInFromRight 200ms ease-out; }
+      `}</style>
     </main>
   )
 }

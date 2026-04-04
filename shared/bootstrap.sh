@@ -80,10 +80,28 @@ if [ -f "$DB_REAL" ]; then
   fi
 fi
 
-# --- Run Migrations ---
+# --- Enable WAL mode and foreign keys ---
+
+sqlite3 "$DB_REAL" "PRAGMA journal_mode=WAL;" >/dev/null 2>&1
+sqlite3 "$DB_REAL" "PRAGMA foreign_keys=ON;" >/dev/null 2>&1
+
+# --- Migration tracking ---
+
+sqlite3 "$DB_REAL" "CREATE TABLE IF NOT EXISTS migrations_applied (
+  filename TEXT PRIMARY KEY,
+  applied_at TEXT DEFAULT (datetime('now'))
+);" 2>/dev/null
+
+# --- Run Migrations (skip already-applied) ---
 
 for f in "$PLUGIN_ROOT"/data/migrations/*.sql; do
-  sqlite3 "$DB_REAL" < "$f" 2>/dev/null
+  fname=$(basename "$f")
+  already=$(sqlite3 "$DB_REAL" "SELECT 1 FROM migrations_applied WHERE filename='$fname';" 2>/dev/null)
+  if [ -z "$already" ]; then
+    sqlite3 "$DB_REAL" "PRAGMA foreign_keys=ON;" 2>/dev/null
+    sqlite3 "$DB_REAL" < "$f" 2>/dev/null
+    sqlite3 "$DB_REAL" "INSERT OR IGNORE INTO migrations_applied (filename) VALUES ('$fname');" 2>/dev/null
+  fi
 done
 
 # --- Data Loss Detection ---

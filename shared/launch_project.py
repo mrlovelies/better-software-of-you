@@ -83,7 +83,7 @@ def _resolve_project(conn, query):
     try:
         pid = int(query)
         row = conn.execute(
-            "SELECT id, name, workspace_path, status FROM projects WHERE id = ?",
+            "SELECT id, name, workspace_path, status, dev_port FROM projects WHERE id = ?",
             (pid,),
         ).fetchone()
         if row:
@@ -94,7 +94,7 @@ def _resolve_project(conn, query):
     # Fuzzy name match
     q = f"%{query}%"
     rows = conn.execute(
-        "SELECT id, name, workspace_path, status FROM projects WHERE LOWER(name) LIKE LOWER(?)",
+        "SELECT id, name, workspace_path, status, dev_port FROM projects WHERE LOWER(name) LIKE LOWER(?)",
         (q,),
     ).fetchall()
 
@@ -104,6 +104,27 @@ def _resolve_project(conn, query):
         matches = [{"id": r["id"], "name": r["name"]} for r in rows]
         return {"ambiguous": True, "matches": matches}
     return None
+
+
+def _tailscale_serve(port, enable=True):
+    """Register or unregister a port with Tailscale Serve."""
+    if not shutil.which("tailscale"):
+        return {"ok": False, "error": "tailscale not installed"}
+    if enable:
+        result = subprocess.run(
+            ["tailscale", "serve", "--bg", str(port)],
+            capture_output=True, text=True,
+        )
+    else:
+        result = subprocess.run(
+            ["tailscale", "serve", "--bg", str(port), "off"],
+            capture_output=True, text=True,
+        )
+    return {
+        "ok": result.returncode == 0,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
 
 
 # --- Subcommands ---
@@ -232,16 +253,27 @@ def cmd_launch(args):
         capture_output=True,
     )
 
+    # Auto-register Tailscale Serve if project has a dev_port
+    serve_info = None
+    dev_port = project.get("dev_port")
+    if dev_port:
+        serve_result = _tailscale_serve(dev_port)
+        if serve_result["ok"]:
+            serve_info = {"port": dev_port, "url": f"https://legion:{dev_port}"}
+
     # Log activity
+    details = {"window": slug, "workspace": workspace}
+    if serve_info:
+        details["serve"] = serve_info
     conn.execute(
         """INSERT INTO activity_log (entity_type, entity_id, action, details, created_at)
            VALUES ('project', ?, 'tmux_session_launched', ?, datetime('now'))""",
-        (project["id"], json.dumps({"window": slug, "workspace": workspace})),
+        (project["id"], json.dumps(details)),
     )
     conn.commit()
     conn.close()
 
-    print(json.dumps({
+    result = {
         "ok": True,
         "window_name": slug,
         "workspace": workspace,
@@ -249,7 +281,12 @@ def cmd_launch(args):
         "switch_command": f"tmux select-window -t {SESSION_NAME}:{slug}",
         "shortcut": "Ctrl-b then window number",
         "message": f"Launched Claude in '{project['name']}'.",
-    }))
+    }
+    if serve_info:
+        result["serve"] = serve_info
+        result["message"] += f" Preview at {serve_info['url']}"
+
+    print(json.dumps(result))
 
 
 def cmd_list():
@@ -311,9 +348,77 @@ def cmd_stop(args):
     print(json.dumps({"ok": True, "stopped": name, "message": f"Window '{name}' stopped."}))
 
 
+def cmd_serve(args):
+    """Set or show dev_port for a project, and register with Tailscale Serve."""
+    if not args:
+        # Show all projects with dev_port set
+        conn = _get_db()
+        rows = conn.execute(
+            "SELECT id, name, dev_port FROM projects WHERE dev_port IS NOT NULL ORDER BY name"
+        ).fetchall()
+        conn.close()
+
+        # Also show current tailscale serve status
+        ts_status = subprocess.run(
+            ["tailscale", "serve", "status"], capture_output=True, text=True
+        ) if shutil.which("tailscale") else None
+
+        result = {
+            "ok": True,
+            "projects": [{"id": r["id"], "name": r["name"], "port": r["dev_port"]} for r in rows],
+        }
+        if ts_status and ts_status.returncode == 0:
+            result["tailscale_serve"] = ts_status.stdout.strip()
+        print(json.dumps(result))
+        return
+
+    if len(args) < 2:
+        print(json.dumps({"ok": False, "error": "Usage: serve <project> <port|off>"}))
+        sys.exit(1)
+
+    project_query = args[0]
+    port_arg = args[1]
+
+    conn = _get_db()
+    project = _resolve_project(conn, project_query)
+
+    if not project or project.get("ambiguous"):
+        print(json.dumps({"ok": False, "error": f"Could not resolve project '{project_query}'"}))
+        conn.close()
+        sys.exit(1)
+
+    if port_arg == "off":
+        old_port = project.get("dev_port")
+        conn.execute("UPDATE projects SET dev_port = NULL, updated_at = datetime('now') WHERE id = ?", (project["id"],))
+        conn.commit()
+        conn.close()
+        if old_port:
+            _tailscale_serve(old_port, enable=False)
+        print(json.dumps({"ok": True, "message": f"Removed dev port for '{project['name']}'"}))
+    else:
+        try:
+            port = int(port_arg)
+        except ValueError:
+            print(json.dumps({"ok": False, "error": f"Invalid port: {port_arg}"}))
+            conn.close()
+            sys.exit(1)
+        conn.execute("UPDATE projects SET dev_port = ?, updated_at = datetime('now') WHERE id = ?", (port, project["id"]))
+        conn.commit()
+        conn.close()
+        serve_result = _tailscale_serve(port)
+        print(json.dumps({
+            "ok": True,
+            "project": project["name"],
+            "port": port,
+            "serve_registered": serve_result["ok"],
+            "url": f"https://legion:{port}",
+            "message": f"Set dev port {port} for '{project['name']}'. Preview at https://legion:{port}",
+        }))
+
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: launch_project.py <ensure-tmux|launch|list|stop> [args...]")
+        print("Usage: launch_project.py <ensure-tmux|launch|list|stop|serve> [args...]")
         sys.exit(1)
 
     command = sys.argv[1]
@@ -324,6 +429,7 @@ def main():
         "launch": lambda: cmd_launch(rest),
         "list": lambda: cmd_list(),
         "stop": lambda: cmd_stop(rest),
+        "serve": lambda: cmd_serve(rest),
     }
 
     if command not in commands:

@@ -1718,6 +1718,8 @@ class SoYHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
@@ -1727,6 +1729,29 @@ class SoYHandler(BaseHTTPRequestHandler):
             return {}
         raw = self.rfile.read(length)
         return json.loads(raw.decode())
+
+    def _read_body_json(self):
+        """Read and parse JSON body, return None on failure."""
+        try:
+            return self._read_body()
+        except Exception:
+            return None
+
+    def _check_db_api_auth(self) -> bool:
+        """Validate shared secret for DB API endpoints. Returns True if authorized."""
+        secret = os.environ.get("SOY_DB_API_SECRET", "")
+        if not secret:
+            # No secret configured = allow from Tailscale IPs only (100.x.x.x)
+            client_ip = self.client_address[0] if self.client_address else ""
+            if client_ip.startswith("100.") or client_ip in ("127.0.0.1", "::1"):
+                return True
+            self._send_json({"error": "DB API requires SOY_DB_API_SECRET or Tailscale IP"}, 403)
+            return False
+        token = self.headers.get("Authorization", "").replace("Bearer ", "")
+        if token == secret:
+            return True
+        self._send_json({"error": "Invalid authorization"}, 401)
+        return False
 
     def _send_static_file(self, filepath):
         """Serve a static file with correct MIME type."""
@@ -1741,6 +1766,10 @@ class SoYHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        if content_type and content_type.startswith("text/html"):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        else:
+            self.send_header("Cache-Control", "public, max-age=3600")
         self.end_headers()
         self.wfile.write(data)
         return True
@@ -2611,6 +2640,71 @@ class SoYHandler(BaseHTTPRequestHandler):
             self._send_json([_row_to_dict(r) for r in rows])
             return
 
+        # ── Writing Module: Projects with writing stats ────────────
+        if path == "/api/writing/projects":
+            conn = _get_db()
+            rows = conn.execute("""
+                SELECT p.id, p.name, p.description, p.status,
+                       COUNT(DISTINCT d.id) as draft_count,
+                       COALESCE(SUM(d.word_count), 0) as total_words,
+                       (SELECT COUNT(*) FROM draft_feedback df
+                        JOIN writing_drafts wd ON wd.id = df.draft_id
+                        WHERE wd.project_id = p.id AND df.status = 'open') as open_feedback,
+                       MAX(d.updated_at) as last_writing_activity
+                FROM projects p
+                LEFT JOIN writing_drafts d ON d.project_id = p.id
+                GROUP BY p.id
+                HAVING draft_count > 0 OR p.status IN ('active', 'planning', 'idea')
+                ORDER BY draft_count DESC, p.name
+            """).fetchall()
+            conn.close()
+            self._send_json([_row_to_dict(r) for r in rows])
+            return
+
+        # ── Writing Module: Lore entries for linking ───────────────
+        if path == "/api/writing/lore":
+            qs = parse_qs(parsed.query)
+            project_id = qs.get("project_id", [None])[0]
+            conn = _get_db()
+            if project_id:
+                rows = conn.execute("""
+                    SELECT id, project_id, context_type, title, status, tags,
+                           substr(content, 1, 200) as content_preview,
+                           created_at, updated_at
+                    FROM creative_context
+                    WHERE project_id = ?
+                    ORDER BY context_type, title
+                """, (int(project_id),)).fetchall()
+            else:
+                rows = conn.execute("""
+                    SELECT id, project_id, context_type, title, status, tags,
+                           substr(content, 1, 200) as content_preview,
+                           created_at, updated_at
+                    FROM creative_context
+                    ORDER BY context_type, title
+                """).fetchall()
+            conn.close()
+            self._send_json([_row_to_dict(r) for r in rows])
+            return
+
+        # ── Writing Module: Get version content (for diff) ─────────
+        m = re.match(r"^/api/writing/drafts/(\d+)/version/(\d+)$", path)
+        if m:
+            draft_id = int(m.group(1))
+            version_number = int(m.group(2))
+            conn = _get_db()
+            ver = conn.execute(
+                """SELECT id, version_number, content, word_count, change_summary, created_at
+                   FROM draft_versions WHERE draft_id = ? AND version_number = ?""",
+                (draft_id, version_number),
+            ).fetchone()
+            conn.close()
+            if not ver:
+                self._send_json({"error": "Version not found"}, 404)
+                return
+            self._send_json(_row_to_dict(ver))
+            return
+
         # ── Annotations API ─────────────────────────────────────────
         if path == "/api/annotations":
             qs = parse_qs(parsed.query)
@@ -3257,6 +3351,90 @@ class SoYHandler(BaseHTTPRequestHandler):
 
         # ── Create Annotation ─────────────────────────────────────
 
+        # ── Writing Module: Create Writing Project ─────────────────────
+        if path == "/api/writing/projects":
+            data = self._read_body()
+            name = (data.get("name") or "").strip()
+            description = (data.get("description") or "").strip() or None
+            if not name:
+                self._send_json({"error": "name is required"}, 400)
+                return
+            conn = _get_db()
+            cursor = conn.execute(
+                """INSERT INTO projects (name, description, status, created_at, updated_at)
+                   VALUES (?, ?, 'active', datetime('now'), datetime('now'))""",
+                (name, description),
+            )
+            pid = cursor.lastrowid
+            conn.execute(
+                """INSERT INTO activity_log (entity_type, entity_id, action, details, created_at)
+                   VALUES ('project', ?, 'created', ?, datetime('now'))""",
+                (pid, json.dumps({"name": name, "source": "writing_module"})),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM projects WHERE id = ?", (pid,)).fetchone()
+            conn.close()
+            self._send_json(_row_to_dict(row), 201)
+            return
+
+        # ── Writing Module: Create Lore Link ───────────────────────────
+        m = re.match(r"^/api/writing/drafts/(\d+)/lore-links$", path)
+        if m:
+            draft_id = int(m.group(1))
+            data = self._read_body()
+            context_id = data.get("context_id")
+            link_type = data.get("link_type", "references")
+            note = (data.get("note") or "").strip() or None
+
+            if not context_id:
+                self._send_json({"error": "context_id is required"}, 400)
+                return
+            if link_type not in ("references", "establishes", "contradicts", "extends"):
+                self._send_json({"error": "Invalid link_type"}, 400)
+                return
+
+            conn = _get_db()
+            draft = conn.execute("SELECT id FROM writing_drafts WHERE id = ?", (draft_id,)).fetchone()
+            if not draft:
+                conn.close()
+                self._send_json({"error": "Draft not found"}, 404)
+                return
+            ctx = conn.execute("SELECT id FROM creative_context WHERE id = ?", (int(context_id),)).fetchone()
+            if not ctx:
+                conn.close()
+                self._send_json({"error": "Context entry not found"}, 404)
+                return
+
+            try:
+                cursor = conn.execute(
+                    """INSERT INTO draft_lore_links (draft_id, context_id, link_type, note, created_at)
+                       VALUES (?, ?, ?, ?, datetime('now'))""",
+                    (draft_id, int(context_id), link_type, note),
+                )
+                lid = cursor.lastrowid
+                conn.execute(
+                    """INSERT INTO activity_log (entity_type, entity_id, action, details, created_at)
+                       VALUES ('draft_lore_link', ?, 'created', ?, datetime('now'))""",
+                    (lid, json.dumps({"draft_id": draft_id, "context_id": int(context_id), "link_type": link_type})),
+                )
+                conn.commit()
+                row = conn.execute(
+                    """SELECT dll.*, cc.title as context_title, cc.context_type
+                       FROM draft_lore_links dll
+                       JOIN creative_context cc ON cc.id = dll.context_id
+                       WHERE dll.id = ?""",
+                    (lid,),
+                ).fetchone()
+                conn.close()
+                self._send_json(_row_to_dict(row), 201)
+            except Exception as e:
+                conn.close()
+                if "UNIQUE constraint" in str(e):
+                    self._send_json({"error": "This lore link already exists"}, 409)
+                else:
+                    self._send_json({"error": str(e)}, 400)
+            return
+
         # ── Writing Module: Save Draft ─────────────────────────────────
         m = re.match(r"^/api/writing/drafts/(\d+)/save$", path)
         if m:
@@ -3402,7 +3580,7 @@ Return ONLY the JSON array, no markdown fences, no other text."""
             import subprocess
             try:
                 result = subprocess.run(
-                    ["/Users/mrlovelies/.local/bin/claude", "-p", prompt],
+                    ["claude", "-p", prompt],
                     capture_output=True, text=True, timeout=120
                 )
                 if result.returncode != 0:
@@ -3672,6 +3850,87 @@ Return ONLY the JSON array, no markdown fences, no other text."""
             threading.Thread(target=self.server.shutdown).start()
             return
 
+        # ── Single-Writer DB API (for cross-machine writes) ──────────
+        if path == "/api/db/query":
+            if not self._check_db_api_auth():
+                return
+            body = self._read_body_json()
+            if not body or "sql" not in body:
+                self._send_json({"error": "Missing 'sql' field"}, 400)
+                return
+            sql = body["sql"].strip()
+            params = body.get("params", [])
+            # Read-only: only allow SELECT
+            if not sql.upper().startswith("SELECT"):
+                self._send_json({"error": "Only SELECT queries allowed via /api/db/query"}, 403)
+                return
+            conn = _get_db()
+            try:
+                rows = conn.execute(sql, params).fetchall()
+                self._send_json({"rows": [_row_to_dict(r) for r in rows]})
+            except Exception as e:
+                self._send_json({"error": str(e)}, 400)
+            finally:
+                conn.close()
+            return
+
+        if path == "/api/db/execute":
+            if not self._check_db_api_auth():
+                return
+            body = self._read_body_json()
+            if not body or "sql" not in body:
+                self._send_json({"error": "Missing 'sql' field"}, 400)
+                return
+            sql = body["sql"].strip()
+            params = body.get("params", [])
+            # Block destructive operations
+            first_word = sql.split()[0].upper() if sql.split() else ""
+            if first_word not in ("INSERT", "UPDATE", "DELETE", "REPLACE"):
+                self._send_json({"error": f"Only INSERT/UPDATE/DELETE/REPLACE allowed, got {first_word}"}, 403)
+                return
+            conn = _get_db()
+            try:
+                cur = conn.execute(sql, params)
+                conn.commit()
+                self._send_json({
+                    "ok": True,
+                    "changes": cur.rowcount,
+                    "lastrowid": cur.lastrowid,
+                })
+            except Exception as e:
+                self._send_json({"error": str(e)}, 400)
+            finally:
+                conn.close()
+            return
+
+        if path == "/api/db/execute-batch":
+            if not self._check_db_api_auth():
+                return
+            body = self._read_body_json()
+            if not body or "statements" not in body:
+                self._send_json({"error": "Missing 'statements' array"}, 400)
+                return
+            conn = _get_db()
+            results = []
+            try:
+                for stmt in body["statements"]:
+                    sql = stmt.get("sql", "").strip()
+                    params = stmt.get("params", [])
+                    first_word = sql.split()[0].upper() if sql.split() else ""
+                    if first_word not in ("INSERT", "UPDATE", "DELETE", "REPLACE"):
+                        results.append({"error": f"Blocked: {first_word}"})
+                        continue
+                    cur = conn.execute(sql, params)
+                    results.append({"ok": True, "changes": cur.rowcount, "lastrowid": cur.lastrowid})
+                conn.commit()
+                self._send_json({"ok": True, "results": results})
+            except Exception as e:
+                conn.rollback()
+                self._send_json({"error": str(e)}, 400)
+            finally:
+                conn.close()
+            return
+
         self._send_json({"error": "Not found"}, 404)
 
     # ── DELETE ────────────────────────────────────────────────────────
@@ -3698,6 +3957,31 @@ Return ONLY the JSON array, no markdown fences, no other text."""
             conn.commit()
             conn.close()
             self._send_json({"deleted": fid})
+            return
+
+        # ── Delete Lore Link ──────────────────────────────────────────
+        m = re.match(r"^/api/writing/drafts/(\d+)/lore-links/(\d+)$", path)
+        if m:
+            draft_id = int(m.group(1))
+            link_id = int(m.group(2))
+            conn = _get_db()
+            row = conn.execute(
+                "SELECT id FROM draft_lore_links WHERE id = ? AND draft_id = ?",
+                (link_id, draft_id),
+            ).fetchone()
+            if not row:
+                conn.close()
+                self._send_json({"error": "Not found"}, 404)
+                return
+            conn.execute("DELETE FROM draft_lore_links WHERE id = ?", (link_id,))
+            conn.execute(
+                """INSERT INTO activity_log (entity_type, entity_id, action, details, created_at)
+                   VALUES ('draft_lore_link', ?, 'deleted', ?, datetime('now'))""",
+                (link_id, json.dumps({"draft_id": draft_id})),
+            )
+            conn.commit()
+            conn.close()
+            self._send_json({"deleted": link_id})
             return
 
         m = re.match(r"^/api/projects/(\d+)$", path)

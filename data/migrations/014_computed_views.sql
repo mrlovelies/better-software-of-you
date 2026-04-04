@@ -69,7 +69,7 @@ SELECT
     AND t.occurred_at > datetime('now', '-30 days')) AS transcripts_30d,
 
   -- Open commitments (you owe them)
-  (SELECT COUNT(*) FROM commitments com
+  (SELECT COUNT(*) FROM commitments_new com
     WHERE com.status IN ('open', 'overdue')
     AND com.is_user_commitment = 1
     AND com.transcript_id IN (
@@ -77,13 +77,13 @@ SELECT
     )) AS your_open_commitments,
 
   -- Open commitments (they owe you)
-  (SELECT COUNT(*) FROM commitments com
+  (SELECT COUNT(*) FROM commitments_new com
     WHERE com.status IN ('open', 'overdue')
     AND com.is_user_commitment = 0
     AND com.owner_contact_id = c.id) AS their_open_commitments,
 
   -- Overdue commitments (either direction)
-  (SELECT COUNT(*) FROM commitments com
+  (SELECT COUNT(*) FROM commitments_new com
     WHERE com.status IN ('open', 'overdue')
     AND com.deadline_date < date('now')
     AND (com.owner_contact_id = c.id
@@ -182,7 +182,7 @@ SELECT
     c.name
   ) AS involved_contact_name
 
-FROM commitments com
+FROM commitments_new com
 LEFT JOIN contacts c ON c.id = com.owner_contact_id
 LEFT JOIN transcripts t ON t.id = com.transcript_id
 WHERE com.status IN ('open', 'overdue');
@@ -228,7 +228,7 @@ SELECT
   CAST(julianday('now') - julianday(com.deadline_date) AS INTEGER),
   t.title,
   'target'
-FROM commitments com
+FROM commitments_new com
 LEFT JOIN contacts c ON c.id = com.owner_contact_id
 LEFT JOIN transcripts t ON t.id = com.transcript_id
 WHERE com.status IN ('open', 'overdue') AND com.deadline_date < date('now')
@@ -287,7 +287,7 @@ SELECT
   CAST(julianday(com.deadline_date) - julianday('now') AS INTEGER),
   t.title,
   'target'
-FROM commitments com
+FROM commitments_new com
 LEFT JOIN contacts c ON c.id = com.owner_contact_id
 LEFT JOIN transcripts t ON t.id = com.transcript_id
 WHERE com.status = 'open'
@@ -643,7 +643,7 @@ SELECT
     ORDER BY target_date ASC LIMIT 1) AS next_milestone_name,
 
   -- Open commitments related to this project's client
-  (SELECT COUNT(*) FROM commitments WHERE status IN ('open', 'overdue')
+  (SELECT COUNT(*) FROM commitments_new WHERE status IN ('open', 'overdue')
     AND (linked_project_id = p.id
       OR owner_contact_id = p.client_id)) AS open_commitments
 

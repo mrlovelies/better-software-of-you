@@ -11,7 +11,7 @@ Alex's machines are connected via Tailscale. All run SoY via Syncthing. When the
 | **MacBook Air** (laptop) | jamess-macbook-air | 100.112.93.44 | n/a (local) | Primary dev machine |
 | **Razer Blade Pro** (Son of Anton hub) | soy | 100.125.139.126 | `mrlovelies@100.125.139.126` | Telegram bot, Tier 1 LLM (Mistral 7B), hub server, WSL2 Linux |
 | **Lucy** (gaming rig) | lucy | 100.74.238.16 | `mrlovelies-gaming@100.74.238.16` | Tier 2 LLM (Qwen 2.5 14B, RTX 3080 Ti 12GB), WSL2 Linux |
-| **Legion** (incoming) | TBD | TBD | TBD | RTX 5080 16GB — not yet delivered |
+| **Legion** | legion | 100.69.255.78 | `mrlovelies@100.69.255.78` | RTX 5080 16GB, WSL2 Linux |
 | **iPhone** | iphone-13-pro-max | 100.86.133.2 | n/a | Telegram access |
 
 Syncthing syncs the SoY codebase + DB bidirectionally across all Linux machines. The Telegram bot runs on the Razer.

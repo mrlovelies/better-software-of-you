@@ -17,6 +17,7 @@ Usage:
 """
 
 import contextlib
+import glob
 import json
 import os
 import re
@@ -83,6 +84,13 @@ ERROR_LOG_MAX = 50
 TEMP_FILE_MAX_AGE = 86400  # 24 hours
 TASK_DISPLAY_LIMIT = 30
 
+# Photo/receipt handling
+PHOTO_DIR = os.path.join(
+    os.path.expanduser("~"), "Documents", "taxes",
+    str(time.strftime("%Y")), "receipts", "incoming",
+)
+PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
+
 # Icons
 STATUS_ICONS = {
     "running": "🔄", "completed": "✅", "failed": "❌",
@@ -110,6 +118,7 @@ class TelegramBot:
         self.active_deploys = {}  # session_id -> {process, stdout_file, started_at, chat_id, ...}
         self.workspace_locks = set()  # workspace paths currently in use (dev, approve, reject)
         self.pending_confirmations = {}  # chat_id -> {action, data, expires_at}
+        self.pending_photo = {}  # chat_id -> {path, saved_at} — awaiting description for a captionless photo
 
     # ── Telegram API ──
 
@@ -191,6 +200,263 @@ class TelegramBot:
         """Send typing indicator."""
         self._api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
 
+    # ── Photo / Receipt handling ──
+
+    def _download_telegram_file(self, file_id):
+        """Download a file from Telegram by file_id. Returns (bytes, file_path) or (None, None)."""
+        result = self._api("getFile", {"file_id": file_id})
+        if not result.get("ok"):
+            return None, None
+        file_path = result["result"]["file_path"]
+        url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return resp.read(), file_path
+        except Exception as e:
+            err_msg = str(e)
+            if BOT_TOKEN and BOT_TOKEN in err_msg:
+                err_msg = err_msg.replace(BOT_TOKEN, "bot***")
+            print(f"[photo] Download failed: {err_msg}")
+            return None, None
+
+    def _save_photo(self, file_bytes, original_path, caption=""):
+        """Save a photo to the receipts incoming folder. Returns the local path."""
+        os.makedirs(PHOTO_DIR, exist_ok=True)
+        ext = os.path.splitext(original_path)[1] or ".jpg"
+        date_prefix = time.strftime("%Y-%m-%d_%H%M%S")
+        # Sanitize caption for filename
+        safe_caption = ""
+        if caption:
+            safe_caption = "_" + re.sub(r"[^\w\s-]", "", caption)[:40].strip().replace(" ", "-").lower()
+        filename = f"{date_prefix}{safe_caption}{ext}"
+        dest = os.path.join(PHOTO_DIR, filename)
+        with open(dest, "wb") as f:
+            f.write(file_bytes)
+        return dest
+
+    def _handle_photo(self, message, chat_id):
+        """Handle an incoming photo message — download, save, and optionally log expense."""
+        self.send_typing(chat_id)
+
+        # Get the largest photo (last in the array)
+        photos = message.get("photo", [])
+        if not photos:
+            self.send_message(chat_id, "Couldn't read that photo.")
+            return
+
+        file_id = photos[-1]["file_id"]
+        caption = message.get("caption", "").strip()
+
+        file_bytes, file_path = self._download_telegram_file(file_id)
+        if not file_bytes:
+            self.send_message(chat_id, "Failed to download the photo from Telegram.")
+            return
+
+        saved_path = self._save_photo(file_bytes, file_path, caption)
+
+        # Log to activity_log
+        try:
+            with self._db() as conn:
+                conn.execute(
+                    "INSERT INTO activity_log (entity_type, entity_id, action, details, created_at) "
+                    "VALUES ('receipt', 0, 'photo_received', ?, datetime('now'))",
+                    (f"Photo saved: {saved_path}. Caption: {caption or '(none)'}",),
+                )
+        except Exception as e:
+            print(f"[photo] DB log error: {e}")
+
+        if caption:
+            # Caption provided — log the expense via Claude
+            self._process_receipt(saved_path, caption, chat_id)
+        else:
+            # No caption — save as pending and ask
+            self.pending_photo[chat_id] = {"path": saved_path, "saved_at": time.time()}
+            self.send_message(chat_id, "📸 Got the receipt. What's it for? (e.g. \"VO booth light from Costco\" or \"lunch with agent\")")
+
+    def _handle_document(self, message, chat_id):
+        """Handle an incoming document (PDF, image file sent as document)."""
+        doc = message.get("document", {})
+        filename = doc.get("file_name", "")
+        ext = os.path.splitext(filename)[1].lower()
+
+        if ext not in PHOTO_EXTENSIONS:
+            self.send_message(chat_id, f"Got a file ({filename}) but I only handle receipt images and PDFs for now.")
+            return
+
+        self.send_typing(chat_id)
+        caption = message.get("caption", "").strip()
+
+        file_bytes, file_path = self._download_telegram_file(doc["file_id"])
+        if not file_bytes:
+            self.send_message(chat_id, "Failed to download that file from Telegram.")
+            return
+
+        # Use original filename if meaningful, otherwise generate one
+        os.makedirs(PHOTO_DIR, exist_ok=True)
+        date_prefix = time.strftime("%Y-%m-%d_%H%M%S")
+        safe_name = re.sub(r"[^\w.\-]", "_", filename).lower()
+        dest = os.path.join(PHOTO_DIR, f"{date_prefix}_{safe_name}")
+        with open(dest, "wb") as f:
+            f.write(file_bytes)
+
+        try:
+            with self._db() as conn:
+                conn.execute(
+                    "INSERT INTO activity_log (entity_type, entity_id, action, details, created_at) "
+                    "VALUES ('receipt', 0, 'document_received', ?, datetime('now'))",
+                    (f"Document saved: {dest}. Caption: {caption or '(none)'}",),
+                )
+        except Exception as e:
+            print(f"[document] DB log error: {e}")
+
+        if caption:
+            self._process_receipt(dest, caption, chat_id)
+        else:
+            self.pending_photo[chat_id] = {"path": dest, "saved_at": time.time()}
+            self.send_message(chat_id, "📎 Got the document. What's it for?")
+
+    def _process_receipt(self, file_path, description, chat_id):
+        """Log a receipt as an expense — parse description and insert into expense_records."""
+        self.send_typing(chat_id)
+
+        # Build a focused prompt for expense extraction
+        expense_categories = (
+            "union_dues, agent_commission, travel, home_office, equipment, "
+            "professional_development, marketing, meals_entertainment, office_supplies, "
+            "software_subscriptions, phone_internet, professional_fees, insurance, vehicle, other"
+        )
+        prompt = f"""A receipt photo was saved to: {file_path}
+The user described it as: "{description}"
+
+Based on ONLY the user's description, extract the expense details and respond with EXACTLY this marker format on one line:
+[EXPENSE: amount | category | description | vendor | deductible_pct]
+
+Rules:
+- amount: the dollar amount if mentioned, or 0 if unknown. Numbers only, no $ sign.
+- category: must be one of: {expense_categories}
+- description: short description of what was purchased (your words, not verbatim)
+- vendor: store/vendor name if mentioned, or "Unknown"
+- deductible_pct: 100 for most business expenses, 50 for meals_entertainment
+
+If the user didn't mention an amount, set amount to 0 — it can be filled in later.
+
+After the marker, write a SHORT (1-2 sentence) confirmation message. Remember this is Telegram — keep it brief.
+Do NOT ask follow-up questions. Just confirm what you logged."""
+
+        try:
+            clean_env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+            result = subprocess.run(
+                ["claude", "-p", "--model", DEFAULT_MODEL, "--no-session-persistence", prompt],
+                capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
+                cwd=PLUGIN_ROOT, env=clean_env,
+            )
+            response = result.stdout.strip() if result.returncode == 0 else ""
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            print(f"[receipt] Claude call failed: {e}")
+            response = ""
+
+        if not response:
+            # Claude unavailable — do a basic direct insert from the description
+            self._direct_log_expense(file_path, description, chat_id)
+            return
+
+        # Parse [EXPENSE:] marker
+        expense_match = re.search(r'\[EXPENSE:\s*([^]]+)\]', response)
+        if expense_match:
+            parts = [p.strip() for p in expense_match.group(1).split("|")]
+            amount = 0
+            try:
+                amount = float(parts[0]) if parts else 0
+            except (ValueError, IndexError):
+                pass
+            category = parts[1] if len(parts) > 1 else "other"
+            desc = parts[2] if len(parts) > 2 else description
+            vendor = parts[3] if len(parts) > 3 else "Unknown"
+            deductible_pct = 100
+            try:
+                deductible_pct = float(parts[4]) if len(parts) > 4 else 100
+            except (ValueError, IndexError):
+                pass
+
+            # Validate category
+            valid_categories = {
+                "union_dues", "agent_commission", "travel", "home_office",
+                "equipment", "professional_development", "marketing",
+                "meals_entertainment", "office_supplies", "software_subscriptions",
+                "phone_internet", "professional_fees", "insurance", "vehicle", "other",
+            }
+            if category not in valid_categories:
+                category = "other"
+
+            deductible_amount = round(amount * deductible_pct / 100, 2) if amount else 0
+
+            try:
+                with self._db() as conn:
+                    conn.execute(
+                        "INSERT INTO expense_records (amount, currency, category, description, vendor, "
+                        "tax_year, expense_date, deductible_pct, deductible_amount, notes, created_at, updated_at) "
+                        "VALUES (?, 'CAD', ?, ?, ?, ?, date('now'), ?, ?, ?, datetime('now'), datetime('now'))",
+                        (amount, category, desc, vendor,
+                         int(time.strftime("%Y")), deductible_pct, deductible_amount,
+                         f"Receipt: {file_path}. Logged via Telegram."),
+                    )
+                    expense_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                    conn.execute(
+                        "INSERT INTO activity_log (entity_type, entity_id, action, details, created_at) "
+                        "VALUES ('expense', ?, 'expense_logged', ?, datetime('now'))",
+                        (expense_id, f"{desc} - ${amount:.2f} ({vendor}) via Telegram"),
+                    )
+            except Exception as e:
+                print(f"[receipt] DB error: {e}")
+
+        # Strip markers and send cleaned response
+        cleaned = re.sub(r'\[EXPENSE:\s*[^]]+\]\s*\n?', '', response).strip()
+        if not cleaned:
+            cleaned = "✅ Expense logged."
+        self.send_message(chat_id, cleaned)
+
+    def _direct_log_expense(self, file_path, description, chat_id):
+        """Fallback: log expense directly without Claude (when CLI unavailable)."""
+        # Simple keyword-based categorization
+        desc_lower = description.lower()
+        if any(w in desc_lower for w in ("meal", "lunch", "dinner", "breakfast", "coffee", "food")):
+            category, pct = "meals_entertainment", 50
+        elif any(w in desc_lower for w in ("light", "mic", "camera", "cable", "monitor", "computer", "booth")):
+            category, pct = "equipment", 100
+        elif any(w in desc_lower for w in ("uber", "lyft", "gas", "parking", "transit")):
+            category, pct = "travel", 100
+        elif any(w in desc_lower for w in ("course", "class", "coaching", "demo", "workshop", "training")):
+            category, pct = "professional_development", 100
+        elif any(w in desc_lower for w in ("actra", "union", "dues")):
+            category, pct = "union_dues", 100
+        elif any(w in desc_lower for w in ("software", "subscription", "app")):
+            category, pct = "software_subscriptions", 100
+        else:
+            category, pct = "other", 100
+
+        try:
+            with self._db() as conn:
+                conn.execute(
+                    "INSERT INTO expense_records (amount, currency, category, description, vendor, "
+                    "tax_year, expense_date, deductible_pct, deductible_amount, notes, created_at, updated_at) "
+                    "VALUES (0, 'CAD', ?, ?, 'Unknown', ?, date('now'), ?, 0, ?, datetime('now'), datetime('now'))",
+                    (category, description, int(time.strftime("%Y")), pct,
+                     f"Receipt: {file_path}. Amount unknown — needs review. Logged via Telegram."),
+                )
+                expense_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                conn.execute(
+                    "INSERT INTO activity_log (entity_type, entity_id, action, details, created_at) "
+                    "VALUES ('expense', ?, 'expense_logged', ?, datetime('now'))",
+                    (expense_id, f"{description} (amount TBD) via Telegram"),
+                )
+        except Exception as e:
+            print(f"[receipt] Direct log DB error: {e}")
+            self.send_message(chat_id, f"📸 Receipt saved but couldn't log to database: {e}")
+            return
+
+        self.send_message(chat_id, f"✅ Logged as *{category.replace('_', ' ')}* expense.\nAmount: $0 (I'll read the receipt and fill this in next full session).\nReceipt: `{file_path}`")
+
     @staticmethod
     def _chunk_text(text):
         """Split text at paragraph boundaries for Telegram's 4096 char limit."""
@@ -213,6 +479,35 @@ class TelegramBot:
         return chunks
 
     # ── Database ──
+
+    def _run_migrations(self):
+        """Apply all SQL migrations on startup using Python sqlite3 (no CLI needed).
+
+        All migrations use IF NOT EXISTS patterns, so this is idempotent.
+        Catches migrations synced via Syncthing that bootstrap.sh hasn't applied.
+        """
+        migrations_dir = os.path.join(PLUGIN_ROOT, "data", "migrations")
+        if not os.path.isdir(migrations_dir):
+            return
+
+        sql_files = sorted(glob.glob(os.path.join(migrations_dir, "*.sql")))
+        if not sql_files:
+            return
+
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            for sql_file in sql_files:
+                with open(sql_file) as f:
+                    sql = f.read()
+                try:
+                    conn.executescript(sql)
+                except sqlite3.Error as e:
+                    print(f"Migration warning ({os.path.basename(sql_file)}): {e}")
+            conn.commit()
+        finally:
+            conn.close()
+
+        print(f"Migrations: applied {len(sql_files)} files from {migrations_dir}")
 
     @contextlib.contextmanager
     def _db(self):
@@ -507,6 +802,7 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
         # Strip markers from visible response
         cleaned = re.sub(r'\[TASK:\s*[^]]+\]\s*\n?', '', text)
         cleaned = re.sub(r'\[NOTE:\s*[^]]+\]\s*\n?', '', cleaned)
+        cleaned = re.sub(r'\[EXPENSE:\s*[^]]+\]\s*\n?', '', cleaned)
         cleaned = re.sub(r'\[HANDOFF_PICKED_UP\]\s*\n?', '', cleaned)
         cleaned = cleaned.strip()
 
@@ -2623,11 +2919,17 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
             print("Error: TELEGRAM_OWNER_ID not set. Run /telegram-setup first.")
             sys.exit(1)
 
-        # Check required dependencies
+        # Apply any pending migrations (handles Syncthing-synced .sql files)
+        self._run_migrations()
+
+        # Check optional dependencies
         if not shutil.which("claude"):
-            print("Error: `claude` CLI not found in PATH.")
+            print("Warning: `claude` CLI not found in PATH. AI chat responses will be unavailable.")
+            print("Photo/receipt handling and slash commands will still work.")
             print("Install Claude Code: https://docs.anthropic.com/en/docs/claude-code")
-            sys.exit(1)
+            self._claude_available = False
+        else:
+            self._claude_available = True
         if not shutil.which("git"):
             print("Error: `git` not found in PATH (required for dev sessions).")
             sys.exit(1)
@@ -2755,7 +3057,7 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
             return
 
         message = update.get("message")
-        if not message or not message.get("text"):
+        if not message:
             return
 
         # Security: owner check
@@ -2764,6 +3066,18 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
             return  # Silent ignore
 
         chat_id = message["chat"]["id"]
+
+        # Handle photos and documents before requiring text
+        if message.get("photo"):
+            self._handle_photo(message, chat_id)
+            return
+        if message.get("document"):
+            self._handle_document(message, chat_id)
+            return
+
+        if not message.get("text"):
+            return
+
         text = message["text"].strip()
         msg_id = message.get("message_id")
 
@@ -2772,6 +3086,18 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
         print(f"[{timestamp}] Message #{self.message_count}: {text[:80]}{'...' if len(text) > 80 else ''}")
 
         try:
+            # Check for pending photo — user is describing a receipt they just sent
+            if chat_id in self.pending_photo:
+                pending = self.pending_photo[chat_id]
+                # Expire after 10 minutes
+                if time.time() - pending["saved_at"] < 600:
+                    del self.pending_photo[chat_id]
+                    self._process_receipt(pending["path"], text, chat_id)
+                    return
+                else:
+                    del self.pending_photo[chat_id]
+                    # Expired — fall through to normal processing
+
             # Check for pending confirmation before normal processing
             if chat_id in self.pending_confirmations:
                 conf = self.pending_confirmations[chat_id]
@@ -2793,6 +3119,9 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
                 return
 
             # Natural language → claude -p
+            if not getattr(self, '_claude_available', True):
+                self.send_message(chat_id, "AI chat is offline on this machine (claude CLI not installed). Photos, receipts, and slash commands still work.")
+                return
             self.send_typing(chat_id)
             session_id = self._get_or_create_session()
             self._save_message(session_id, "user", text, msg_id)

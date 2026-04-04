@@ -3,7 +3,8 @@ import {
   PenTool, ChevronRight, ChevronDown, MessageSquare, BookOpen,
   Users, Link2, X, Send, FileText, AlertTriangle, Lightbulb,
   HelpCircle, Edit3, StickyNote, Eye, Tag, Bold, Italic, Minus,
-  Save, Check, Trash2, Menu, AlignLeft, Hash,
+  Save, Check, Trash2, Menu, AlignLeft, Hash, Underline,
+  Heading, Undo2, Redo2, Plus, Search, Unlink, GitCompare,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────
@@ -65,6 +66,29 @@ interface LoreLink {
   note: string | null
   context_title: string
   context_type: string
+}
+
+interface WritingProject {
+  id: number
+  name: string
+  description: string | null
+  status: string
+  draft_count: number
+  total_words: number
+  open_feedback: number
+  last_writing_activity: string | null
+}
+
+interface LoreEntry {
+  id: number
+  project_id: number | null
+  context_type: string
+  title: string
+  status: string
+  tags: string | null
+  content_preview: string
+  created_at: string
+  updated_at: string
 }
 
 interface DraftDetail extends Omit<Draft, "characters"> {
@@ -142,6 +166,91 @@ function nextFocusState(current: FocusState): FocusState {
   if (current === 'off') return 'focus'
   if (current === 'focus') return 'typewriter'
   return 'off'
+}
+
+// ── Word-level Diff Algorithm ─────────────────────────────
+
+interface DiffSegment {
+  type: 'equal' | 'add' | 'remove'
+  text: string
+}
+
+function computeWordDiff(oldText: string, newText: string): DiffSegment[] {
+  // Strip HTML tags for comparison
+  const strip = (s: string) => s.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
+  const oldWords = strip(oldText).split(/\s+/).filter(Boolean)
+  const newWords = strip(newText).split(/\s+/).filter(Boolean)
+
+  // Simple LCS-based diff (O(mn) but fine for typical draft sizes)
+  const m = oldWords.length
+  const n = newWords.length
+
+  // For very large texts, fall back to paragraph-level diff
+  if (m * n > 2_000_000) {
+    return computeParagraphDiff(oldText, newText)
+  }
+
+  // Build LCS table
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldWords[i - 1] === newWords[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+      }
+    }
+  }
+
+  // Backtrack to build diff
+  const segments: DiffSegment[] = []
+  let i = m, j = n
+  const raw: { type: DiffSegment['type']; word: string }[] = []
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldWords[i - 1] === newWords[j - 1]) {
+      raw.push({ type: 'equal', word: oldWords[i - 1] })
+      i--; j--
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      raw.push({ type: 'add', word: newWords[j - 1] })
+      j--
+    } else {
+      raw.push({ type: 'remove', word: oldWords[i - 1] })
+      i--
+    }
+  }
+
+  raw.reverse()
+
+  // Merge consecutive same-type segments
+  for (const r of raw) {
+    if (segments.length > 0 && segments[segments.length - 1].type === r.type) {
+      segments[segments.length - 1].text += ' ' + r.word
+    } else {
+      segments.push({ type: r.type, text: r.word })
+    }
+  }
+
+  return segments
+}
+
+function computeParagraphDiff(oldText: string, newText: string): DiffSegment[] {
+  const strip = (s: string) => s.replace(/<[^>]*>/g, '').trim()
+  const oldParas = oldText.split(/\n\n|<\/p>\s*<p[^>]*>/i).map(strip).filter(Boolean)
+  const newParas = newText.split(/\n\n|<\/p>\s*<p[^>]*>/i).map(strip).filter(Boolean)
+  const segments: DiffSegment[] = []
+  const maxLen = Math.max(oldParas.length, newParas.length)
+  for (let i = 0; i < maxLen; i++) {
+    const op = oldParas[i] || ''
+    const np = newParas[i] || ''
+    if (op === np) {
+      segments.push({ type: 'equal', text: op })
+    } else {
+      if (op) segments.push({ type: 'remove', text: op })
+      if (np) segments.push({ type: 'add', text: np })
+    }
+  }
+  return segments
 }
 
 // ── useScrollDirection hook (for mobile bottom bar) ────────
@@ -700,6 +809,7 @@ function ProseEditor({
   const [changeSummary, setChangeSummary] = useState('')
   const [savedMsg, setSavedMsg] = useState<string | null>(null)
   const [formatToolbar, setFormatToolbar] = useState<{ x: number; y: number } | null>(null)
+  const [fontSize, setFontSize] = useState<string>('normal')
   const initialHtml = useRef(plainTextToHtml(initialContent))
 
   useEffect(() => {
@@ -770,6 +880,31 @@ function ProseEditor({
     setFormatToolbar(null)
   }
 
+  function execUnderline() {
+    document.execCommand('underline')
+    setDirty(true)
+  }
+
+  function execHeading() {
+    document.execCommand('formatBlock', false, '<h3>')
+    setDirty(true)
+  }
+
+  function execUndo() {
+    document.execCommand('undo')
+  }
+
+  function execRedo() {
+    document.execCommand('redo')
+  }
+
+  function execFontSize(size: string) {
+    setFontSize(size)
+    if (!editorRef.current) return
+    const sizeMap: Record<string, string> = { small: '0.9375rem', normal: '1.1875rem', large: '1.375rem' }
+    editorRef.current.style.fontSize = sizeMap[size] || sizeMap.normal
+  }
+
   function handleSaveClick() {
     if (!dirty) return
     setShowSummary(true)
@@ -812,6 +947,19 @@ function ProseEditor({
 
   return (
     <div className="relative">
+      {/* Enhanced Editor Toolbar */}
+      <EditorToolbar
+        onBold={execBold}
+        onItalic={execItalic}
+        onUnderline={execUnderline}
+        onHeading={execHeading}
+        onSectionBreak={insertSectionBreak}
+        onFontSize={execFontSize}
+        onUndo={execUndo}
+        onRedo={execRedo}
+        currentFontSize={fontSize}
+      />
+
       {/* Save bar */}
       <div className="flex items-center gap-2 mb-4">
         {showSummary ? (
@@ -918,6 +1066,425 @@ function ProseEditor({
           onItalic={execItalic}
           onSectionBreak={insertSectionBreak}
         />
+      )}
+    </div>
+  )
+}
+
+// ── Diff Viewer ───────────────────────────────────────────
+
+function DiffViewer({
+  draftId,
+  versions,
+  currentVersionNumber,
+}: {
+  draftId: number
+  versions: { id: number; version_number: number; word_count: number; change_summary: string | null; created_at: string }[]
+  currentVersionNumber: number
+}) {
+  const [leftVersion, setLeftVersion] = useState<number>(Math.max(1, currentVersionNumber - 1))
+  const [rightVersion, setRightVersion] = useState<number>(currentVersionNumber)
+  const [leftContent, setLeftContent] = useState<string | null>(null)
+  const [rightContent, setRightContent] = useState<string | null>(null)
+  const [rightSummary, setRightSummary] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [diffSegments, setDiffSegments] = useState<DiffSegment[]>([])
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      fetch(`/api/writing/drafts/${draftId}/version/${leftVersion}`).then(r => r.json()),
+      fetch(`/api/writing/drafts/${draftId}/version/${rightVersion}`).then(r => r.json()),
+    ]).then(([left, right]) => {
+      const lc = left.content || ''
+      const rc = right.content || ''
+      setLeftContent(lc)
+      setRightContent(rc)
+      setRightSummary(right.change_summary || null)
+      setDiffSegments(computeWordDiff(lc, rc))
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [draftId, leftVersion, rightVersion])
+
+  return (
+    <div>
+      {/* Version selectors */}
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">From</span>
+          <select
+            value={leftVersion}
+            onChange={e => setLeftVersion(Number(e.target.value))}
+            className="text-sm bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-zinc-900 dark:text-zinc-100 outline-none"
+          >
+            {versions.map(v => (
+              <option key={v.version_number} value={v.version_number}>
+                v{v.version_number} ({wordCount(v.word_count)} words)
+              </option>
+            ))}
+          </select>
+        </div>
+        <span className="text-zinc-400 dark:text-zinc-500">→</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">To</span>
+          <select
+            value={rightVersion}
+            onChange={e => setRightVersion(Number(e.target.value))}
+            className="text-sm bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1 text-zinc-900 dark:text-zinc-100 outline-none"
+          >
+            {versions.map(v => (
+              <option key={v.version_number} value={v.version_number}>
+                v{v.version_number} ({wordCount(v.word_count)} words)
+                {v.version_number === currentVersionNumber ? ' (latest)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Change summary */}
+      {rightSummary && (
+        <div className="mb-4 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <p className="text-xs text-blue-700 dark:text-blue-400">
+            <span className="font-medium">v{rightVersion} changes:</span> {rightSummary}
+          </p>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-12 text-sm text-zinc-500 dark:text-zinc-400">Computing diff...</div>
+      ) : leftVersion === rightVersion ? (
+        <div className="text-center py-12 text-sm text-zinc-500 dark:text-zinc-400">Select two different versions to compare.</div>
+      ) : (
+        <div className="text-[1.0625rem] leading-[1.58] text-zinc-800 dark:text-zinc-200 font-sans antialiased">
+          {diffSegments.map((seg, i) => {
+            if (seg.type === 'equal') {
+              return <span key={i}>{seg.text} </span>
+            }
+            if (seg.type === 'add') {
+              return (
+                <span key={i} className="bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 rounded px-0.5">
+                  {seg.text}{' '}
+                </span>
+              )
+            }
+            return (
+              <span key={i} className="bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 line-through rounded px-0.5">
+                {seg.text}{' '}
+              </span>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Stats */}
+      {!loading && leftContent !== null && rightContent !== null && leftVersion !== rightVersion && (
+        <div className="mt-6 pt-4 border-t border-zinc-200 dark:border-zinc-700 flex gap-4 text-xs text-zinc-500 dark:text-zinc-400">
+          <span className="text-red-600 dark:text-red-400">{diffSegments.filter(s => s.type === 'remove').reduce((n, s) => n + s.text.split(/\s+/).length, 0)} words removed</span>
+          <span className="text-emerald-600 dark:text-emerald-400">{diffSegments.filter(s => s.type === 'add').reduce((n, s) => n + s.text.split(/\s+/).length, 0)} words added</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Enhanced Editor Toolbar ───────────────────────────────
+
+function EditorToolbar({
+  onBold,
+  onItalic,
+  onUnderline,
+  onHeading,
+  onSectionBreak,
+  onFontSize,
+  onUndo,
+  onRedo,
+  currentFontSize,
+}: {
+  onBold: () => void
+  onItalic: () => void
+  onUnderline: () => void
+  onHeading: () => void
+  onSectionBreak: () => void
+  onFontSize: (size: string) => void
+  onUndo: () => void
+  onRedo: () => void
+  currentFontSize: string
+}) {
+  return (
+    <div className="flex items-center gap-1 px-3 py-1.5 bg-white dark:bg-[#1e1e22] border border-zinc-200 dark:border-zinc-700 rounded-lg mb-3 flex-wrap">
+      {/* Undo / Redo */}
+      <button
+        onClick={onUndo}
+        className="p-1.5 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        title="Undo"
+      >
+        <Undo2 className="w-4 h-4" />
+      </button>
+      <button
+        onClick={onRedo}
+        className="p-1.5 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        title="Redo"
+      >
+        <Redo2 className="w-4 h-4" />
+      </button>
+
+      <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-700 mx-1" />
+
+      {/* Formatting */}
+      <button
+        onClick={onBold}
+        className="p-1.5 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        title="Bold"
+      >
+        <Bold className="w-4 h-4" />
+      </button>
+      <button
+        onClick={onItalic}
+        className="p-1.5 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        title="Italic"
+      >
+        <Italic className="w-4 h-4" />
+      </button>
+      <button
+        onClick={onUnderline}
+        className="p-1.5 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        title="Underline"
+      >
+        <Underline className="w-4 h-4" />
+      </button>
+
+      <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-700 mx-1" />
+
+      {/* Heading */}
+      <button
+        onClick={onHeading}
+        className="p-1.5 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        title="Heading (chapter/scene title)"
+      >
+        <Heading className="w-4 h-4" />
+      </button>
+
+      {/* Font Size */}
+      <select
+        value={currentFontSize}
+        onChange={e => onFontSize(e.target.value)}
+        className="text-xs bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded px-1.5 py-1 text-zinc-700 dark:text-zinc-300 outline-none"
+        title="Font size"
+      >
+        <option value="small">Small</option>
+        <option value="normal">Normal</option>
+        <option value="large">Large</option>
+      </select>
+
+      <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-700 mx-1" />
+
+      {/* Section Break */}
+      <button
+        onClick={onSectionBreak}
+        className="p-1.5 rounded text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        title="Section break (• • •)"
+      >
+        <Minus className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
+// ── Lore Link Panel ───────────────────────────────────────
+
+function LoreLinkPanel({
+  draftId,
+  links,
+  projectId,
+  onLinkCreated,
+  onLinkRemoved,
+}: {
+  draftId: number
+  links: LoreLink[]
+  projectId: number | null
+  onLinkCreated: (link: LoreLink) => void
+  onLinkRemoved: (linkId: number) => void
+}) {
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [loreEntries, setLoreEntries] = useState<LoreEntry[]>([])
+  const [loadingLore, setLoadingLore] = useState(false)
+  const [linkType, setLinkType] = useState<string>('references')
+  const [creating, setCreating] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!showSearch || !projectId) return
+    setLoadingLore(true)
+    fetch(`/api/writing/lore?project_id=${projectId}`)
+      .then(r => r.json())
+      .then(data => { setLoreEntries(data); setLoadingLore(false) })
+      .catch(() => setLoadingLore(false))
+  }, [showSearch, projectId])
+
+  const linkedIds = new Set(links.map(l => l.context_id))
+  const filtered = loreEntries.filter(e =>
+    !linkedIds.has(e.id) &&
+    (searchQuery === '' || e.title.toLowerCase().includes(searchQuery.toLowerCase()) || e.context_type.toLowerCase().includes(searchQuery.toLowerCase()))
+  )
+
+  // Group by context_type
+  const grouped: Record<string, LoreEntry[]> = {}
+  for (const e of filtered) {
+    if (!grouped[e.context_type]) grouped[e.context_type] = []
+    grouped[e.context_type].push(e)
+  }
+
+  async function handleLink(entryId: number) {
+    setCreating(entryId)
+    try {
+      const res = await fetch(`/api/writing/drafts/${draftId}/lore-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context_id: entryId, link_type: linkType }),
+      })
+      if (res.ok) {
+        const link = await res.json()
+        onLinkCreated(link)
+      }
+    } finally {
+      setCreating(null)
+    }
+  }
+
+  async function handleUnlink(linkId: number) {
+    const res = await fetch(`/api/writing/drafts/${draftId}/lore-links/${linkId}`, { method: 'DELETE' })
+    if (res.ok) onLinkRemoved(linkId)
+  }
+
+  const linkTypes = ['references', 'establishes', 'contradicts', 'extends']
+
+  return (
+    <div className="space-y-3">
+      {/* Linked entries */}
+      {links.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[0.6875rem] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Linked</div>
+          {links.map(l => (
+            <div
+              key={l.id}
+              className={`group bg-white dark:bg-[#222226] border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 ${
+                l.link_type === 'contradicts' ? 'border-l-2 border-l-red-400 dark:border-l-red-500' : ''
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[0.5625rem] px-1.5 py-0.5 rounded font-medium ${linkTypeColors[l.link_type]}`}>
+                  {l.link_type}
+                </span>
+                <Tag className="w-3 h-3 text-zinc-400 dark:text-zinc-500" />
+                <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500 capitalize">{l.context_type}</span>
+                <button
+                  onClick={() => handleUnlink(l.id)}
+                  className="ml-auto opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
+                  title="Unlink"
+                >
+                  <Unlink className="w-3 h-3" />
+                </button>
+              </div>
+              <p className="text-[0.8125rem] font-medium text-zinc-800 dark:text-zinc-200 mt-1">{l.context_title}</p>
+              {l.note && <p className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 mt-0.5">{l.note}</p>}
+              {l.link_type === 'contradicts' && (
+                <div className="flex items-center gap-1 mt-1.5">
+                  <AlertTriangle className="w-3 h-3 text-red-500 dark:text-red-400" />
+                  <span className="text-[0.625rem] text-red-600 dark:text-red-400 font-medium">Contradiction — needs resolution</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add link button / search */}
+      {!showSearch ? (
+        <button
+          onClick={() => setShowSearch(true)}
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[0.8125rem] font-medium border border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Link Lore Entry
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search lore..."
+                className="w-full pl-7 pr-2 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 outline-none focus:border-blue-400"
+                autoFocus
+              />
+            </div>
+            <button
+              onClick={() => { setShowSearch(false); setSearchQuery('') }}
+              className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Link type selector */}
+          <div className="flex gap-1">
+            {linkTypes.map(lt => (
+              <button
+                key={lt}
+                onClick={() => setLinkType(lt)}
+                className={`flex-1 text-center px-1 py-1 rounded text-[0.625rem] font-medium transition-colors ${
+                  linkType === lt
+                    ? linkTypeColors[lt]
+                    : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                }`}
+              >
+                {lt}
+              </button>
+            ))}
+          </div>
+
+          {/* Results */}
+          {loadingLore ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2 text-center">Loading...</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2 text-center">
+              {loreEntries.length === 0 ? 'No lore entries for this project.' : 'No matching entries.'}
+            </p>
+          ) : (
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {Object.entries(grouped).map(([type, entries]) => (
+                <div key={type}>
+                  <div className="text-[0.5625rem] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-medium px-1 py-1">{type}</div>
+                  {entries.map(e => (
+                    <button
+                      key={e.id}
+                      onClick={() => handleLink(e.id)}
+                      disabled={creating === e.id}
+                      className="w-full text-left px-2 py-1.5 rounded-md text-[0.8125rem] text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                    >
+                      <span className="font-medium">{e.title}</span>
+                      {e.content_preview && (
+                        <p className="text-[0.625rem] text-zinc-400 dark:text-zinc-500 line-clamp-1 mt-0.5">{e.content_preview}</p>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Empty state when no links and not searching */}
+      {links.length === 0 && !showSearch && (
+        <div className="text-center py-4">
+          <Link2 className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">No lore links yet.</p>
+        </div>
       )}
     </div>
   )
@@ -1064,7 +1631,7 @@ export default function WritingView() {
   const [loadingDraft, setLoadingDraft] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [panelTab, setPanelTab] = useState<'feedback' | 'lore' | 'characters'>('feedback')
-  const [mode, setMode] = useState<'read' | 'edit'>('read')
+  const [mode, setMode] = useState<'read' | 'edit' | 'diff'>('read')
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
   const [versionMenuOpen, setVersionMenuOpen] = useState(false)
   const [processingFeedback, setProcessingFeedback] = useState(false)
@@ -1073,10 +1640,42 @@ export default function WritingView() {
   const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false)
   const [mobileFeedbackOpen, setMobileFeedbackOpen] = useState(false)
   const bottomBarVisible = useScrollDirection()
+  // Project selector state
+  const [projects, setProjects] = useState<WritingProject[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(() => {
+    const saved = localStorage.getItem('soy_writing_project_id')
+    return saved ? parseInt(saved) : null
+  })
+  const [showProjectSelector, setShowProjectSelector] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [creatingProject, setCreatingProject] = useState(false)
 
-  // Load all drafts (for now, project 209 — Braska's Pilgrimage)
+  // Load projects list
   useEffect(() => {
-    fetch('/api/writing/drafts?project_id=209')
+    fetch('/api/writing/projects')
+      .then(res => res.json())
+      .then((data: WritingProject[]) => {
+        setProjects(data)
+        // If no project selected, pick the one with most drafts or first active
+        if (!selectedProjectId && data.length > 0) {
+          const withDrafts = data.filter(p => p.draft_count > 0)
+          const pick = withDrafts.length > 0 ? withDrafts[0].id : data[0].id
+          setSelectedProjectId(pick)
+          localStorage.setItem('soy_writing_project_id', String(pick))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  // Load drafts when project changes
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setActiveDraft(null)
+    fetch(`/api/writing/drafts?project_id=${selectedProjectId}`)
       .then(res => res.json())
       .then(data => {
         setDrafts(data)
@@ -1093,7 +1692,35 @@ export default function WritingView() {
         }
       })
       .catch(() => setLoading(false))
-  }, [])
+  }, [selectedProjectId])
+
+  function handleSelectProject(projectId: number) {
+    setSelectedProjectId(projectId)
+    localStorage.setItem('soy_writing_project_id', String(projectId))
+    setShowProjectSelector(false)
+  }
+
+  async function handleCreateProject() {
+    if (!newProjectName.trim()) return
+    setCreatingProject(true)
+    try {
+      const res = await fetch('/api/writing/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newProjectName.trim() }),
+      })
+      if (res.ok) {
+        const proj = await res.json()
+        setProjects(prev => [{ ...proj, draft_count: 0, total_words: 0, open_feedback: 0, last_writing_activity: null }, ...prev])
+        setSelectedProjectId(proj.id)
+        localStorage.setItem('soy_writing_project_id', String(proj.id))
+        setNewProjectName('')
+        setShowProjectSelector(false)
+      }
+    } finally {
+      setCreatingProject(false)
+    }
+  }
 
   function loadDraft(id: number) {
     setLoadingDraft(true)
@@ -1202,6 +1829,24 @@ export default function WritingView() {
     }
   }
 
+  function handleLoreLinkCreated(link: LoreLink) {
+    if (activeDraft) {
+      setActiveDraft({
+        ...activeDraft,
+        lore_links: [...activeDraft.lore_links, link],
+      })
+    }
+  }
+
+  function handleLoreLinkRemoved(linkId: number) {
+    if (activeDraft) {
+      setActiveDraft({
+        ...activeDraft,
+        lore_links: activeDraft.lore_links.filter(l => l.id !== linkId),
+      })
+    }
+  }
+
   // Build tree structure
   const chapters = drafts.filter(d => !d.parent_id)
   const getChildren = (parentId: number) => drafts.filter(d => d.parent_id === parentId)
@@ -1235,13 +1880,69 @@ export default function WritingView() {
   const feedback: Feedback[] = activeDraft?.feedback || []
   const openFeedbackCount = feedback.filter(f => f.status === 'open').length
 
+  const selectedProject = projects.find(p => p.id === selectedProjectId)
+
   // Outline panel content (shared between desktop sidebar and mobile overlay)
   const outlineContent = (
     <>
       <div className="p-3 border-b border-zinc-200 dark:border-zinc-700">
-        <div className="flex items-center gap-2">
-          <PenTool className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Braska's Pilgrimage</h2>
+        {/* Project selector */}
+        <div className="relative">
+          <button
+            onClick={() => setShowProjectSelector(!showProjectSelector)}
+            className="flex items-center gap-2 w-full text-left"
+          >
+            <PenTool className="w-4 h-4 text-zinc-600 dark:text-zinc-400 shrink-0" />
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate flex-1">
+              {selectedProject?.name || 'Select Project'}
+            </h2>
+            <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 shrink-0 transition-transform ${showProjectSelector ? 'rotate-180' : ''}`} />
+          </button>
+          {showProjectSelector && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setShowProjectSelector(false)} />
+              <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white dark:bg-[#222226] border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl max-h-64 overflow-y-auto">
+                {projects.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSelectProject(p.id)}
+                    className={`w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700/50 transition-colors ${
+                      p.id === selectedProjectId ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[0.8125rem] font-medium text-zinc-800 dark:text-zinc-200 truncate">{p.name}</span>
+                      {p.draft_count > 0 && (
+                        <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500 shrink-0 ml-2">
+                          {p.draft_count} drafts · {wordCount(p.total_words)}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+                <div className="border-t border-zinc-200 dark:border-zinc-700 p-2">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={newProjectName}
+                      onChange={e => setNewProjectName(e.target.value)}
+                      placeholder="New project name..."
+                      className="flex-1 px-2 py-1 text-xs bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 outline-none focus:border-blue-400"
+                      onKeyDown={e => { if (e.key === 'Enter') handleCreateProject() }}
+                    />
+                    <button
+                      onClick={handleCreateProject}
+                      disabled={!newProjectName.trim() || creatingProject}
+                      className="p-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      title="Create project"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
         <div className="flex gap-3 mt-1.5 text-[0.6875rem] text-zinc-500 dark:text-zinc-400">
           <span>{totalScenes} scenes</span>
@@ -1382,26 +2083,20 @@ export default function WritingView() {
               {/* Mode toggle */}
               {activeDraft.content && (
                 <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 rounded-full p-0.5 ml-2 shrink-0">
-                  <button
-                    onClick={() => setMode('read')}
-                    className={`px-3 py-1 rounded-full text-[0.6875rem] font-medium transition-colors
-                      ${mode === 'read'
-                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
-                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-                      }`}
-                  >
-                    Read
-                  </button>
-                  <button
-                    onClick={() => setMode('edit')}
-                    className={`px-3 py-1 rounded-full text-[0.6875rem] font-medium transition-colors
-                      ${mode === 'edit'
-                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
-                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-                      }`}
-                  >
-                    Edit
-                  </button>
+                  {(['read', 'edit', 'diff'] as const).map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setMode(m)}
+                      className={`px-3 py-1 rounded-full text-[0.6875rem] font-medium transition-colors flex items-center gap-1
+                        ${mode === m
+                          ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                          : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                        }`}
+                    >
+                      {m === 'diff' && <GitCompare className="w-3 h-3" />}
+                      {m.charAt(0).toUpperCase() + m.slice(1)}
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -1519,13 +2214,19 @@ export default function WritingView() {
                   onUpdateFeedback={handleUpdateFeedback}
                   focusState={focusState}
                 />
-              ) : (
+              ) : mode === 'edit' ? (
                 <ProseEditor
                   key={`${activeDraft.id}-${activeDraft.current_version}`}
                   initialContent={activeDraft.content.content}
                   draftId={activeDraft.id}
                   currentVersion={activeDraft.current_version}
                   onSaved={handleSaved}
+                />
+              ) : (
+                <DiffViewer
+                  draftId={activeDraft.id}
+                  versions={activeDraft.versions}
+                  currentVersionNumber={activeDraft.current_version}
                 />
               )}
             </div>
@@ -1630,29 +2331,14 @@ export default function WritingView() {
               )
             )}
 
-            {panelTab === 'lore' && (
-              loreLinks.length === 0 ? (
-                <div className="text-center py-8">
-                  <Link2 className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">No lore links.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {loreLinks.map(l => (
-                    <div key={l.id} className="bg-white dark:bg-[#222226] border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-[0.5625rem] px-1.5 py-0.5 rounded font-medium ${linkTypeColors[l.link_type]}`}>
-                          {l.link_type}
-                        </span>
-                        <Tag className="w-3 h-3 text-zinc-400 dark:text-zinc-500" />
-                        <span className="text-[0.625rem] text-zinc-400 dark:text-zinc-500 capitalize">{l.context_type}</span>
-                      </div>
-                      <p className="text-[0.8125rem] font-medium text-zinc-800 dark:text-zinc-200 mt-1">{l.context_title}</p>
-                      {l.note && <p className="text-[0.6875rem] text-zinc-500 dark:text-zinc-400 mt-0.5">{l.note}</p>}
-                    </div>
-                  ))}
-                </div>
-              )
+            {panelTab === 'lore' && activeDraft && (
+              <LoreLinkPanel
+                draftId={activeDraft.id}
+                links={loreLinks}
+                projectId={activeDraft.project_id}
+                onLinkCreated={handleLoreLinkCreated}
+                onLinkRemoved={handleLoreLinkRemoved}
+              />
             )}
 
             {panelTab === 'characters' && (

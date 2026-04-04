@@ -23,12 +23,24 @@ from pathlib import Path
 DB_PATH = Path.home() / ".local" / "share" / "software-of-you" / "soy.db"
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
+# Agent heartbeat integration
+sys.path.insert(0, str(PLUGIN_ROOT / "shared"))
+try:
+    from agent_heartbeat import agent_start, agent_complete, agent_fail
+except ImportError:
+    # Graceful fallback if heartbeat module not available
+    def agent_start(s, m, **kw): return "noop"
+    def agent_complete(s, r, m, **kw): pass
+    def agent_fail(s, r, m, **kw): pass
+
 MACHINES = {
     "razer": {"ip": "100.125.139.126", "port": 11434, "tier": 1},
     "lucy": {"ip": "100.74.238.16", "port": 11434, "tier": 2},
 }
 
-LOG_FILE = Path.home() / ".local" / "share" / "software-of-you" / "ambient-research.log"
+import socket as _socket
+_HOSTNAME = _socket.gethostname().lower().split(".")[0]
+LOG_FILE = Path.home() / ".local" / "share" / "software-of-you" / f"ambient-research-{_HOSTNAME}.log"
 
 
 def log(msg: str):
@@ -64,7 +76,13 @@ def ollama_generate(ip: str, port: int, model: str, prompt: str, system: str, ti
         duration = int((time.time() - start) * 1000)
         tokens_out = data.get("eval_count", 0)
         eval_rate = round(tokens_out / (data.get("eval_duration", 1) / 1e9), 1) if data.get("eval_duration") else 0
-        return {"response": data.get("response", ""), "tokens_out": tokens_out, "duration_ms": duration, "eval_rate": eval_rate}
+        # Sanitize response to valid UTF-8 — Ollama can return stray bytes
+        response_text = data.get("response", "")
+        if isinstance(response_text, bytes):
+            response_text = response_text.decode("utf-8", errors="replace")
+        else:
+            response_text = response_text.encode("utf-8", errors="replace").decode("utf-8")
+        return {"response": response_text, "tokens_out": tokens_out, "duration_ms": duration, "eval_rate": eval_rate}
     except Exception as e:
         return {"error": str(e)}
 
@@ -88,13 +106,23 @@ SYSTEM_PROMPTS = {
 # --- Tier 1: Web Sweeps ---
 
 def run_tier1():
+    run_id = agent_start("ambient-research", "Tier 1 sweep")
     log("=== Tier 1 Run Starting ===")
+    try:
+        _run_tier1_inner(run_id)
+    except Exception as e:
+        agent_fail("ambient-research", run_id, str(e))
+        raise
+
+
+def _run_tier1_inner(run_id):
     if not check_machine("razer"):
         log("Razer offline — skipping Tier 1")
         return
 
     db = get_db()
     streams = db.execute("SELECT * FROM research_streams WHERE active = 1 ORDER BY priority DESC").fetchall()
+    finding_count = 0
 
     for stream in streams:
         # Check cadence
@@ -144,22 +172,34 @@ def run_tier1():
                 "INSERT INTO research_findings (stream_id, task_id, tier, finding_type, title, content) VALUES (?, ?, 1, 'insight', ?, ?)",
                 (stream["id"], task_id, f"Tier 1 Sweep — {stream['name']} — {datetime.now().strftime('%Y-%m-%d')}", result["response"]),
             )
+            finding_count += 1
         db.commit()
 
     db.close()
+    agent_complete("ambient-research", run_id, f"Tier 1: {finding_count} findings across {len(streams)} streams")
     log("=== Tier 1 Run Complete ===")
 
 
 # --- Tier 2: Summarize + Wiki Update ---
 
 def run_tier2():
+    run_id = agent_start("ambient-research", "Tier 2 wiki update")
     log("=== Tier 2 Run Starting ===")
+    try:
+        _run_tier2_inner(run_id)
+    except Exception as e:
+        agent_fail("ambient-research", run_id, str(e))
+        raise
+
+
+def _run_tier2_inner(run_id):
     if not check_machine("lucy"):
         log("Lucy offline — skipping Tier 2")
         return
 
     db = get_db()
     streams = db.execute("SELECT * FROM research_streams WHERE active = 1 ORDER BY priority DESC").fetchall()
+    wiki_updates = 0
 
     for stream in streams:
         # Check for unincorporated findings
@@ -228,31 +268,36 @@ def run_tier2():
                     (stream["id"], f"{stream['name']} — Research Wiki", result["response"], len(result["response"].split())))
 
             db.execute("UPDATE research_findings SET incorporated=1 WHERE stream_id=? AND incorporated=0", (stream["id"],))
+            wiki_updates += 1
 
         db.commit()
 
     db.close()
+    agent_complete("ambient-research", run_id, f"Tier 2: {wiki_updates} wiki updates across {len(streams)} streams")
     log("=== Tier 2 Run Complete ===")
 
 
 # --- Tier 3: Claude CLI Overnight ---
 
 def run_tier3():
+    run_id = agent_start("ambient-research", "Tier 3 Claude CLI digest")
     log("=== Tier 3 Run Starting (Claude CLI) ===")
-    sys.path.insert(0, str(PLUGIN_ROOT))
-    from modules import __init__
-
     try:
-        from modules.ambient_research.digest import generate_digest
-    except ImportError:
-        # Direct import fallback
         import importlib.util
         spec = importlib.util.spec_from_file_location("digest", Path(__file__).parent / "digest.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         content = mod.generate_digest()
-
-    log("=== Tier 3 Run Complete ===")
+        if content:
+            log(f"  Digest generated: {len(content)} chars")
+            agent_complete("ambient-research", run_id, f"Tier 3: digest generated ({len(content)} chars)")
+        else:
+            log("  Digest generation returned empty")
+            agent_complete("ambient-research", run_id, "Tier 3: digest empty")
+        log("=== Tier 3 Run Complete ===")
+    except Exception as e:
+        agent_fail("ambient-research", run_id, str(e))
+        raise
 
 
 # --- Status ---

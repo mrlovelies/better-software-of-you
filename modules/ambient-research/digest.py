@@ -10,6 +10,7 @@ Usage:
 """
 
 import json
+import os
 import sqlite3
 import subprocess
 from datetime import datetime, timedelta
@@ -20,8 +21,25 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = Path.home() / ".local" / "share" / "software-of-you" / "output"
 
 
+def _find_claude_cli() -> str:
+    """Find the claude CLI binary, checking nvm paths if not in PATH."""
+    import shutil
+    found = shutil.which("claude")
+    if found:
+        return found
+    # Check nvm installations
+    nvm_dir = Path.home() / ".nvm" / "versions" / "node"
+    if nvm_dir.exists():
+        for node_dir in sorted(nvm_dir.iterdir(), reverse=True):
+            candidate = node_dir / "bin" / "claude"
+            if candidate.exists():
+                return str(candidate)
+    return "claude"  # Fall back, will fail with FileNotFoundError
+
+
 def get_db():
     db = sqlite3.connect(DB_PATH)
+    db.text_factory = lambda b: b.decode("utf-8", errors="replace")
     db.row_factory = sqlite3.Row
     return db
 
@@ -64,25 +82,134 @@ def gather_digest_context() -> dict:
     # Recent project activity (from SoY)
     projects = db.execute(
         """SELECT p.name, p.description, p.status,
-                  (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id AND pt.completed_at > ?) as tasks_completed,
-                  (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id AND pt.status = 'active') as tasks_active
+                  (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.completed_at > ?) as tasks_completed,
+                  (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status IN ('todo', 'in_progress')) as tasks_active
            FROM projects p WHERE p.status = 'active' ORDER BY p.updated_at DESC LIMIT 10""",
         (week_ago,),
     ).fetchall()
 
     # Recent activity log
     activity = db.execute(
-        "SELECT entity_type, action, description, created_at FROM activity_log WHERE created_at > ? ORDER BY created_at DESC LIMIT 20",
+        "SELECT entity_type, action, details, created_at FROM activity_log WHERE created_at > ? ORDER BY created_at DESC LIMIT 20",
         (week_ago,),
     ).fetchall()
 
     db.close()
+
+    # --- Enhanced context: Signal Harvester pipeline ---
+    pipeline_builds = []
+    try:
+        sh_db_path = Path.home() / ".software-of-you" / "data" / "soy.db"
+        if sh_db_path.exists():
+            # Recent pipeline experiment results
+            builds_dir = Path.home() / "signal-harvester" / "builds"
+            if builds_dir.exists():
+                for d in sorted(builds_dir.iterdir(), reverse=True):
+                    meta_path = d / ".build-meta.json"
+                    if meta_path.exists():
+                        try:
+                            meta = json.loads(meta_path.read_text())
+                            created = meta.get("created_at", "")
+                            if created > week_ago:
+                                files_count = sum(1 for f in d.rglob("*") if f.suffix in (".ts", ".tsx", ".js", ".jsx", ".py") and "node_modules" not in str(f) and ".gsd" not in str(f))
+                                pipeline_builds.append({
+                                    "name": d.name,
+                                    "status": meta.get("status", "unknown"),
+                                    "variant": meta.get("variant", meta.get("builder_type", "unknown")),
+                                    "source_files": files_count,
+                                    "created": created[:16],
+                                    "product": meta.get("source_id", ""),
+                                })
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+
+    # --- Enhanced context: Session handoffs ---
+    session_handoffs = []
+    try:
+        handoffs = db.execute(
+            "SELECT summary, branch, source, status, created_at FROM session_handoffs WHERE created_at > ? ORDER BY created_at DESC LIMIT 5",
+            (week_ago,),
+        ).fetchall()
+        session_handoffs = [dict(h) for h in handoffs]
+    except Exception:
+        pass
+
+    # --- Enhanced context: Memory system updates ---
+    memory_updates = []
+    try:
+        memory_dir = Path.home() / ".claude" / "projects" / "-mnt-c-Users-jalex-wkspaces" / "memory"
+        if memory_dir.exists():
+            for f in sorted(memory_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+                if f.name == "MEMORY.md":
+                    continue
+                mtime = datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+                if mtime > week_ago:
+                    # Read frontmatter for description
+                    desc = ""
+                    try:
+                        text = f.read_text()[:500]
+                        for line in text.split("\n"):
+                            if line.startswith("description:"):
+                                desc = line.split(":", 1)[1].strip()
+                                break
+                    except Exception:
+                        pass
+                    memory_updates.append({"file": f.name, "modified": mtime[:16], "description": desc})
+    except Exception:
+        pass
+
+    # --- Enhanced context: Git activity across repos ---
+    git_activity = []
+    try:
+        import subprocess
+        repos = [
+            Path.home() / "signal-harvester",
+            Path.home() / ".software-of-you",
+        ]
+        for repo in repos:
+            if (repo / ".git").exists():
+                try:
+                    result = subprocess.run(
+                        ["git", "log", f"--since={week_ago[:10]}", "--oneline", "--no-merges", "-20"],
+                        cwd=str(repo), capture_output=True, text=True, timeout=10
+                    )
+                    if result.stdout.strip():
+                        for line in result.stdout.strip().split("\n")[:10]:
+                            git_activity.append({"repo": repo.name, "commit": line.strip()})
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # --- Enhanced context: Service states ---
+    service_states = []
+    try:
+        import subprocess
+        services = ["harvest-dashboard", "soy-hub", "soy-discord-bot", "soy-telegram-bot", "syncthing", "paperclip"]
+        for svc in services:
+            try:
+                result = subprocess.run(
+                    ["systemctl", "--user", "is-active", f"{svc}.service"],
+                    capture_output=True, text=True, timeout=5
+                )
+                service_states.append({"name": svc, "status": result.stdout.strip()})
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     return {
         "week_start": (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d"),
         "streams": stream_data,
         "projects": [dict(p) for p in projects],
         "activity": [dict(a) for a in activity],
+        "pipeline_builds": pipeline_builds,
+        "session_handoffs": session_handoffs,
+        "memory_updates": memory_updates,
+        "git_activity": git_activity,
+        "service_states": service_states,
     }
 
 
@@ -102,11 +229,48 @@ def build_digest_prompt(context: dict) -> str:
         projects_text += f"({p['tasks_completed']} tasks completed, {p['tasks_active']} active)\n"
 
     activity_text = "\n".join(
-        f"- [{a['created_at'][:10]}] {a['entity_type']}/{a['action']}: {a['description']}"
+        f"- [{a['created_at'][:10]}] {a['entity_type']}/{a['action']}: {a['details']}"
         for a in context["activity"][:10]
     )
 
-    return f"""You are generating a weekly intelligence digest for Alex Somerville — a freelance developer,
+    # Pipeline builds
+    pipeline_text = ""
+    if context.get("pipeline_builds"):
+        pipeline_text = "\n## Signal Harvester Pipeline Activity\n"
+        for b in context["pipeline_builds"]:
+            pipeline_text += f"- **{b['name']}**: {b['status']} ({b['source_files']} files, {b['variant']}) — {b['created']}\n"
+
+    # Session handoffs
+    handoffs_text = ""
+    if context.get("session_handoffs"):
+        handoffs_text = "\n## Claude Code Session Summaries\n"
+        for h in context["session_handoffs"]:
+            summary = (h.get("summary") or "")[:300]
+            handoffs_text += f"- [{h.get('created_at', '?')[:10]}] {h.get('source', '?')}: {summary}\n"
+
+    # Memory updates
+    memory_text = ""
+    if context.get("memory_updates"):
+        memory_text = "\n## New Learnings & Context (Memory System)\n"
+        for m in context["memory_updates"]:
+            memory_text += f"- **{m['file']}** ({m['modified']}): {m['description']}\n"
+
+    # Git activity
+    git_text = ""
+    if context.get("git_activity"):
+        git_text = "\n## Git Commits This Week\n"
+        for g in context["git_activity"]:
+            git_text += f"- [{g['repo']}] {g['commit']}\n"
+
+    # Service states
+    service_text = ""
+    if context.get("service_states"):
+        service_text = "\n## Service Health\n"
+        for s in context["service_states"]:
+            icon = "✅" if s["status"] == "active" else "❌"
+            service_text += f"- {icon} {s['name']}: {s['status']}\n"
+
+        return f"""You are generating a weekly intelligence digest for Alex Somerville — a freelance developer,
 voice actor, and game developer based in Toronto.
 
 This digest should be engaging and readable — designed to be read with coffee at a coffee shop, not skimmed
@@ -122,9 +286,29 @@ cross-pollination insights where one stream's findings are relevant to another.
 ## Recent Activity
 {activity_text or "No recent activity logged."}
 
+{pipeline_text}
+
+{handoffs_text}
+
+{memory_text}
+
+{git_text}
+
+{service_text}
+
 ## Instructions
 
+IMPORTANT: The digest MUST cover ALL activity — not just research streams. If pipeline experiments ran,
+products were built, sessions happened, or memories were saved, those are the LEAD STORY, not the research
+streams. The digest should reflect what actually happened this week, not just what the ambient research
+module tracked.
+
 Generate a weekly digest in markdown with these sections:
+
+### 0. This Week's Headline
+One sentence: the single most important thing that happened. If 6 products were built by an AI pipeline,
+that's the headline — not "research streams continued."
+
 
 ### 1. The Big Picture (2-3 paragraphs)
 What shifted this week across all streams? What's the connective thread? Write this like you're
@@ -170,12 +354,18 @@ def generate_digest(preview: bool = False) -> str:
     print(f"  Projects: {len(context['projects'])}")
 
     try:
+        claude_bin = _find_claude_cli()
+        # Ensure node is in PATH (nvm isn't loaded in cron environments)
+        env = dict(os.environ)
+        claude_dir = str(Path(claude_bin).parent)
+        env["PATH"] = claude_dir + ":" + env.get("PATH", "")
         proc = subprocess.run(
-            ["claude", "-p", prompt, "--no-input"],
+            [claude_bin, "-p", prompt],
             capture_output=True,
             text=True,
             timeout=600,
             cwd=str(PLUGIN_ROOT),
+            env=env,
         )
 
         if proc.returncode != 0:
@@ -206,7 +396,7 @@ def generate_digest(preview: bool = False) -> str:
 
     # Log activity
     db.execute(
-        "INSERT INTO activity_log (entity_type, action, description, created_at) VALUES ('research', 'digest', ?, datetime('now'))",
+        "INSERT INTO activity_log (entity_type, entity_id, action, details, created_at) VALUES ('research', 0, 'digest', ?, datetime('now'))",
         (f"Weekly digest generated for {context['week_start']}",),
     )
     db.commit()

@@ -12,18 +12,28 @@ from pathlib import Path
 
 DB_PATH = Path.home() / ".local" / "share" / "software-of-you" / "soy.db"
 
+# Machine-to-tier pinning: each machine runs ONE primary role to avoid VRAM thrashing.
+# Razer (6GB) = T1 only (Mistral 7B, always loaded, instant)
+# Lucy (12GB) = T2 primary (Qwen 14B, always loaded, no swap penalty)
+# Legion (16GB) = burst capacity (Gemma e4b for function calling, large models when available)
 MACHINES = {
     "razer": {
         "ip": "100.125.139.126",
         "port": 11434,
         "tier": 1,
-        "models": ["mistral:7b", "llama3.1:8b", "qwen2.5:7b"],
+        "models": ["mistral:7b", "llama3.1:8b"],
     },
     "lucy": {
         "ip": "100.74.238.16",
         "port": 11434,
         "tier": 2,
         "models": ["qwen2.5:14b", "mistral:7b"],
+    },
+    "legion": {
+        "ip": "100.69.255.78",
+        "port": 11434,
+        "tier": 2,
+        "models": ["qwen2.5:32b", "deepseek-r1:32b", "qwen3:30b-a3b", "gemma4:e4b", "mistral:7b"],
     },
 }
 
@@ -116,15 +126,44 @@ def generate(
     }
 
 
+def _is_gpu_available(machine: str) -> bool:
+    """Check if a machine is flagged active in research_machines (GPU not in use by games).
+
+    Returns True if the machine has no DB entry (default to available) or active=1.
+    Returns False only if explicitly flagged active=0 (GPU handed off to gaming).
+    """
+    try:
+        db = sqlite3.connect(DB_PATH)
+        row = db.execute(
+            "SELECT active FROM research_machines WHERE name = ?", (machine,)
+        ).fetchone()
+        db.close()
+        if row is None:
+            return True  # No DB entry = assume available
+        return bool(row[0])
+    except Exception:
+        return True  # DB error = don't block routing
+
+
 def pick_machine(tier: int) -> str | None:
-    """Pick the best available machine for a given tier."""
+    """Pick the best available machine for a given tier.
+
+    Checks the research_machines.active flag first (instant) to skip machines
+    whose GPU is handed off to gaming, avoiding the 5s health-check timeout.
+
+    For T2: prefers Lucy (always-on, 12GB) over Legion (intermittent, gaming).
+    """
     candidates = [name for name, m in MACHINES.items() if m["tier"] == tier]
     if not candidates:
         # Fall back: any machine
         candidates = list(MACHINES.keys())
 
+    # Prefer always-on machines first (Lucy before Legion for T2)
+    prefer_order = ["lucy", "razer", "legion"]
+    candidates.sort(key=lambda n: prefer_order.index(n) if n in prefer_order else 99)
+
     for name in candidates:
-        if check_health(name):
+        if _is_gpu_available(name) and check_health(name):
             return name
     return None
 
@@ -135,11 +174,12 @@ def pick_model(machine: str, tier: int) -> str | None:
     if not available:
         return None
 
-    # Tier 2 prefers 14B
+    # Tier 2 prefers largest available (32b > 30b > 14b)
     if tier == 2:
-        for m in available:
-            if "14b" in m:
-                return m
+        for size in ["32b", "30b", "14b"]:
+            for m in available:
+                if size in m:
+                    return m
 
     # Tier 1 prefers 7B Mistral or Llama
     if tier == 1:

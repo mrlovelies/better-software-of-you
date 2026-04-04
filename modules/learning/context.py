@@ -8,11 +8,26 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path.home() / ".local" / "share" / "software-of-you" / "soy.db"
+
+# Import shared logging
+sys.path.insert(0, str(PLUGIN_ROOT / "shared"))
+try:
+    from soy_logging import log_error, emit_event, get_logger
+    _logger = get_logger("learning-context")
+except ImportError:
+    # Fallback if soy_logging not available
+    def log_error(source, error, context=None):
+        print(f"[ERROR] [{source}] {error}", file=sys.stderr)
+    def emit_event(*a, **kw):
+        pass
+    import logging
+    _logger = logging.getLogger("learning-context")
 
 # Known project directories for git scanning
 PROJECT_DIRS = [
@@ -22,7 +37,7 @@ PROJECT_DIRS = [
 
 
 def get_db():
-    db = sqlite3.connect(DB_PATH)
+    db = sqlite3.connect(DB_PATH, timeout=30)
     db.row_factory = sqlite3.Row
     return db
 
@@ -32,17 +47,83 @@ def gather_handoffs(since: str) -> list[dict]:
     db = get_db()
     try:
         rows = db.execute(
-            """SELECT interface, machine, session_context, key_decisions,
-                      open_threads, emotional_state, created_at
+            """SELECT summary, project_ids, branch, source, status, created_at
                FROM session_handoffs WHERE created_at > ?
                ORDER BY created_at DESC""",
             (since,),
         ).fetchall()
         return [dict(r) for r in rows]
-    except Exception:
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
         return []
     finally:
         db.close()
+
+
+def gather_claude_sessions(since: str) -> list[dict]:
+    """Scan Claude Code conversation history for recent sessions."""
+    sessions = []
+    since_dt = datetime.strptime(since[:19], "%Y-%m-%d %H:%M:%S")
+    projects_dir = Path.home() / ".claude" / "projects"
+
+    if not projects_dir.exists():
+        return []
+
+    for proj_dir in projects_dir.iterdir():
+        if not proj_dir.is_dir():
+            continue
+
+        # Derive a readable project name from the dir name
+        proj_name = proj_dir.name.replace("-home-mrlovelies-", "").replace("-", "/")
+
+        for jsonl_path in proj_dir.glob("*.jsonl"):
+            try:
+                mtime = datetime.fromtimestamp(jsonl_path.stat().st_mtime)
+                if mtime < since_dt:
+                    continue
+
+                user_messages = []
+                tool_names = set()
+                with open(jsonl_path) as f:
+                    for line in f:
+                        entry = json.loads(line)
+                        if entry.get("type") == "user":
+                            msg = entry.get("message", entry)
+                            content = msg.get("content", "")
+                            if isinstance(content, list):
+                                for block in content:
+                                    if block.get("type") == "text":
+                                        user_messages.append(block["text"][:200])
+                                        break
+                            elif isinstance(content, str):
+                                user_messages.append(content[:200])
+                        elif entry.get("type") == "assistant":
+                            msg = entry.get("message", entry)
+                            content = msg.get("content", "")
+                            if isinstance(content, list):
+                                for block in content:
+                                    if block.get("type") == "tool_use":
+                                        tool_names.add(block.get("name", ""))
+
+                if not user_messages:
+                    continue
+
+                sessions.append({
+                    "project": proj_name,
+                    "session_id": jsonl_path.stem[:8],
+                    "message_count": len(user_messages),
+                    "last_active": mtime.strftime("%Y-%m-%d %H:%M"),
+                    "first_message": user_messages[0],
+                    "tools_used": ", ".join(sorted(tool_names)[:10]) if tool_names else None,
+                    "topics": " | ".join(user_messages[:5]),
+                })
+            except Exception as e:
+                _logger.warning("gather item failed: %s", e)
+                continue
+
+    # Sort by last active, most recent first
+    sessions.sort(key=lambda s: s["last_active"], reverse=True)
+    return sessions[:20]
 
 
 def gather_git_activity(since: str) -> list[dict]:
@@ -59,8 +140,8 @@ def gather_git_activity(since: str) -> list[dict]:
         # Also check immediate subdirectories
         try:
             dirs_to_check.extend([d for d in base_dir.iterdir() if d.is_dir() and not d.name.startswith(".")])
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.warning("dir iteration failed for %s: %s", base_dir, e)
 
         for project_dir in dirs_to_check:
             git_dir = project_dir / ".git"
@@ -84,7 +165,8 @@ def gather_git_activity(since: str) -> list[dict]:
                                 "author": parts[2],
                                 "date": parts[3],
                             })
-            except Exception:
+            except Exception as e:
+                _logger.warning("gather item failed: %s", e)
                 continue
 
     return commits
@@ -105,7 +187,8 @@ def gather_emails(since: str) -> list[dict]:
             (since,),
         ).fetchall()
         return [dict(r) for r in rows]
-    except Exception:
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
         return []
     finally:
         db.close()
@@ -125,7 +208,8 @@ def gather_calendar(since: str) -> list[dict]:
             (since, since),
         ).fetchall()
         return [dict(r) for r in rows]
-    except Exception:
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
         return []
     finally:
         db.close()
@@ -159,8 +243,8 @@ def gather_conversations(since: str) -> list[dict]:
             (since,),
         ).fetchall()
         items.extend([{**dict(r), "source": "transcript"} for r in rows])
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
     finally:
         db.close()
     return items
@@ -203,8 +287,8 @@ def gather_research(since: str) -> list[dict]:
             (since,),
         ).fetchall()
         items.extend([{**dict(r), "source": "research_task"} for r in rows])
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
     finally:
         db.close()
     return items
@@ -229,7 +313,8 @@ def gather_health(since: str) -> list[dict]:
             (since,),
         ).fetchall()
         return [dict(r) for r in rows]
-    except Exception:
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
         return []
     finally:
         db.close()
@@ -254,10 +339,49 @@ def gather_project_activity(since: str) -> list[dict]:
             (since,),
         ).fetchall()
         return [dict(r) for r in rows]
-    except Exception:
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
         return []
     finally:
         db.close()
+
+
+def gather_bot_conversations(since: str) -> list[dict]:
+    """Get Telegram and Discord bot conversations."""
+    db = get_db()
+    items = []
+    try:
+        # Telegram conversations
+        rows = db.execute(
+            """SELECT tc.role, tc.content, tc.created_at,
+                      'telegram' as source
+               FROM telegram_conversations tc
+               WHERE tc.created_at > ?
+               ORDER BY tc.created_at DESC
+               LIMIT 30""",
+            (since,),
+        ).fetchall()
+        items.extend([dict(r) for r in rows])
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
+
+    try:
+        # Discord conversations
+        rows = db.execute(
+            """SELECT dc.role, dc.content, dc.created_at,
+                      dc.channel_id, 'discord' as source
+               FROM discord_conversations dc
+               WHERE dc.created_at > ?
+               ORDER BY dc.created_at DESC
+               LIMIT 30""",
+            (since,),
+        ).fetchall()
+        items.extend([dict(r) for r in rows])
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
+
+    db.close()
+    return items
 
 
 def gather_profile() -> dict:
@@ -273,8 +397,8 @@ def gather_profile() -> dict:
             if cat not in profile:
                 profile[cat] = {}
             profile[cat][r["key"]] = r["value"]
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.warning("gather failed: %s", e)
     finally:
         db.close()
     return profile
@@ -285,6 +409,7 @@ def gather_all(since: str) -> dict:
     return {
         "since": since,
         "handoffs": gather_handoffs(since),
+        "claude_sessions": gather_claude_sessions(since),
         "git": gather_git_activity(since),
         "emails": gather_emails(since),
         "calendar": gather_calendar(since),
@@ -292,5 +417,6 @@ def gather_all(since: str) -> dict:
         "research": gather_research(since),
         "health": gather_health(since),
         "project_activity": gather_project_activity(since),
+        "bot_conversations": gather_bot_conversations(since),
         "profile": gather_profile(),
     }

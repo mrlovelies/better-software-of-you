@@ -20,10 +20,15 @@ MACHINES = {
     "razer": {
         "ip": "100.125.139.126",
         "ssh_user": "mrlovelies",
+        "ssh_port": 2222,
     },
     "lucy": {
         "ip": "100.74.238.16",
         "ssh_user": "mrlovelies-gaming",
+    },
+    "legion": {
+        "ip": "100.69.255.78",
+        "ssh_user": "mrlovelies",
     },
 }
 
@@ -37,6 +42,8 @@ def _detect_this_machine() -> str | None:
         return "lucy"
     if "macbook" in hostname or "macair" in hostname:
         return "macbook"
+    if "legion" in hostname:
+        return "legion"
     return None
 
 

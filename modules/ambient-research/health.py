@@ -33,6 +33,8 @@ def _detect_this_machine() -> str | None:
         return "razer"
     if "1746h58" in hostname or hostname == "desktop-1746h58" or hostname == "lucy":
         return "lucy"
+    if "legion" in hostname:
+        return "legion"
     if "macbook" in hostname or "macair" in hostname:
         return "macbook"
     # Fallback: check if we can reach localhost Ollama
@@ -59,6 +61,15 @@ OWNER_ID = os.environ.get("TELEGRAM_OWNER_ID", "")
 MACHINES = {
     "razer": {
         "ip": "100.125.139.126",
+        "ssh_user": "mrlovelies",
+        "ollama_port": 11434,
+        "repair_cmds": [
+            "sudo bash ~/start-ollama.sh &",
+            "sudo service ssh restart",
+        ],
+    },
+    "legion": {
+        "ip": "100.69.255.78",
         "ssh_user": "mrlovelies",
         "ollama_port": 11434,
         "repair_cmds": [
@@ -197,6 +208,93 @@ def attempt_repair(machine: str, issue: str) -> bool:
     return False
 
 
+def _systemctl_env() -> dict:
+    """Get environment with XDG_RUNTIME_DIR set for systemctl --user from cron."""
+    env = os.environ.copy()
+    uid = os.getuid()
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{uid}/bus")
+    return env
+
+
+def check_telegram_bot() -> dict:
+    """Check if the Telegram bot is running and auto-restart if down (Razer only).
+
+    Returns {"alive": bool, "restarted": bool, "error": str|None}
+    """
+    if THIS_MACHINE != "razer":
+        return {"alive": True, "restarted": False, "error": None}
+
+    env = _systemctl_env()
+
+    # Try systemd first
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", "soy-telegram-bot.service"],
+            capture_output=True, text=True, timeout=5, env=env,
+        )
+        if result.stdout.strip() == "active":
+            return {"alive": True, "restarted": False, "error": None}
+
+        # Systemd service exists but not active — restart it
+        log("  Telegram bot DOWN (systemd) — attempting restart")
+        subprocess.run(
+            ["systemctl", "--user", "restart", "soy-telegram-bot.service"],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+        time.sleep(5)
+        verify = subprocess.run(
+            ["systemctl", "--user", "is-active", "soy-telegram-bot.service"],
+            capture_output=True, text=True, timeout=5, env=env,
+        )
+        if verify.stdout.strip() == "active":
+            log("  Telegram bot restarted successfully via systemd")
+            return {"alive": True, "restarted": True, "error": None}
+        else:
+            log("  Telegram bot systemd restart FAILED — falling through to process check")
+
+    except FileNotFoundError:
+        pass  # systemd not available, fall through to process check
+    except Exception:
+        pass  # systemd check failed, fall through
+
+    # Fallback: check by process name
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "telegram_bot.py"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return {"alive": True, "restarted": False, "error": None}
+
+        # Bot is down — restart via nvm + nohup
+        log("  Telegram bot DOWN (process) — attempting restart")
+        bot_log = Path.home() / ".local" / "share" / "software-of-you" / "telegram_bot.log"
+        subprocess.Popen(
+            ["bash", "-c",
+             "source /home/mrlovelies/.nvm/nvm.sh && "
+             f"cd {PLUGIN_ROOT} && "
+             f"python3 shared/telegram_bot.py >> {bot_log} 2>&1"],
+            start_new_session=True,
+        )
+        time.sleep(8)
+        # Verify
+        verify = subprocess.run(
+            ["pgrep", "-f", "telegram_bot.py"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if verify.returncode == 0:
+            log("  Telegram bot restarted successfully via process")
+            return {"alive": True, "restarted": True, "error": None}
+        else:
+            log("  Telegram bot process restart FAILED")
+            return {"alive": False, "restarted": False, "error": "process restart failed"}
+
+    except Exception as e:
+        log(f"  Telegram bot check error: {e}")
+        return {"alive": False, "restarted": False, "error": str(e)}
+
+
 def run_health_check():
     """Run a full health check across all machines."""
     log("=== Health Check ===")
@@ -211,6 +309,21 @@ def run_health_check():
             issues.append(f"{name}: SSH unreachable — machine may be asleep or WSL stopped")
             all_ok = False
             continue
+
+        # Check if GPU is handed off to gaming (Legion only)
+        if name == "legion":
+            try:
+                import sqlite3 as _sql
+                _db = _sql.connect(DB_PATH)
+                _row = _db.execute(
+                    "SELECT active FROM research_machines WHERE name = 'legion'"
+                ).fetchone()
+                _db.close()
+                if _row and not _row[0]:
+                    log(f"  {name}: GPU handed off (gaming) — skipping")
+                    continue
+            except Exception:
+                pass
 
         # Check Ollama
         ollama = check_ollama(name)
@@ -230,6 +343,17 @@ def run_health_check():
                 all_ok = False
         else:
             log(f"  {name}: OK ({len(ollama['models'])} models)")
+
+    # Check Telegram bot (Razer only — auto-heals if down)
+    if THIS_MACHINE == "razer":
+        bot_status = check_telegram_bot()
+        if bot_status["restarted"]:
+            log("  Telegram bot: recovered (auto-restarted)")
+        elif not bot_status["alive"]:
+            issues.append(f"Telegram bot down on Razer: {bot_status['error']}")
+            all_ok = False
+        else:
+            log("  Telegram bot: OK")
 
     # Check for stale research tasks (nothing completed in 24h when there should have been)
     try:
@@ -274,6 +398,17 @@ def run_health_check():
     else:
         log("  All systems healthy")
 
+    # Dead-man switch: ping healthchecks.io so silence = alert.
+    # Set HEALTHCHECKS_PING_URL in .env (free at https://healthchecks.io)
+    hc_url = os.environ.get("HEALTHCHECKS_PING_URL", "")
+    if hc_url:
+        try:
+            suffix = "" if all_ok else "/fail"
+            req = urllib.request.Request(hc_url + suffix)
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+
     return all_ok
 
 
@@ -288,6 +423,14 @@ def run_daily_summary():
         status = "online" if ssh_ok and ollama["online"] else "OFFLINE"
         models = len(ollama["models"])
         machine_status.append(f"  {name}: {status} ({models} models)")
+
+    # Bot status in daily report (Razer only)
+    if THIS_MACHINE == "razer":
+        bot_check = check_telegram_bot()
+        bot_line = "  telegram bot: " + ("online" if bot_check["alive"] else "OFFLINE")
+        if bot_check["restarted"]:
+            bot_line += " (auto-restarted)"
+        machine_status.append(bot_line)
 
     try:
         import sqlite3
@@ -337,3 +480,4 @@ if __name__ == "__main__":
         run_daily_summary()
     else:
         run_health_check()
+

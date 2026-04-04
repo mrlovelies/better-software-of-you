@@ -65,12 +65,70 @@ def _format_profile(profile: dict) -> str:
     return "\n".join(lines) if lines else "Profile exists but no specific preferences recorded yet."
 
 
+def _build_health_section() -> str:
+    """Check system health and data freshness for the digest header."""
+    import sqlite3
+    db = sqlite3.connect(str(context_mod.DB_PATH), timeout=30)
+    db.row_factory = sqlite3.Row
+    issues = []
+
+    try:
+        # Check data freshness
+        meta = {r["key"]: r["value"] for r in db.execute(
+            "SELECT key, value FROM soy_meta WHERE key IN ('gmail_last_synced', 'calendar_last_synced', 'transcripts_last_scanned')"
+        ).fetchall()}
+
+        for key, label in [("gmail_last_synced", "Gmail"), ("calendar_last_synced", "Calendar")]:
+            ts = meta.get(key)
+            if not ts:
+                issues.append(f"- **{label}**: Never synced")
+            else:
+                try:
+                    last = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+                    days_ago = (datetime.now() - last).days
+                    if days_ago > 1:
+                        issues.append(f"- **{label}**: Last synced {days_ago} days ago ({ts[:10]})")
+                except ValueError:
+                    issues.append(f"- **{label}**: Invalid sync timestamp")
+
+        # Check for recent errors in events table
+        try:
+            error_count = db.execute(
+                "SELECT COUNT(*) as c FROM events WHERE event_type = 'error' AND created_at > datetime('now', '-24 hours')"
+            ).fetchone()
+            if error_count and error_count["c"] > 0:
+                issues.append(f"- **Errors**: {error_count['c']} errors in the last 24 hours")
+        except Exception:
+            pass
+
+        # Check agent health via events
+        try:
+            fails = db.execute(
+                "SELECT source, COUNT(*) as c FROM events WHERE event_type = 'agent_failed' "
+                "AND created_at > datetime('now', '-24 hours') GROUP BY source"
+            ).fetchall()
+            for f in fails:
+                issues.append(f"- **{f['source']}**: {f['c']} failures in last 24h")
+        except Exception:
+            pass
+
+    except Exception:
+        issues.append("- **Health check failed**: Could not query system status")
+    finally:
+        db.close()
+
+    if not issues:
+        return "### System Health\nAll data sources are fresh and no errors detected.\n\n"
+    return "### System Health — ISSUES DETECTED\n" + "\n".join(issues) + "\n\n"
+
+
 def build_daily_prompt(ctx: dict, profile: dict) -> str:
     """Build the prompt for a daily educational digest."""
     profile_text = _format_profile(profile)
 
     context_sections = ""
     context_sections += _format_context_section("Session Handoffs", ctx.get("handoffs", []))
+    context_sections += _format_context_section("Claude Code Sessions", ctx.get("claude_sessions", []))
     context_sections += _format_context_section("Git Commits", ctx.get("git", []))
     context_sections += _format_context_section("Emails", ctx.get("emails", []))
     context_sections += _format_context_section("Calendar Events", ctx.get("calendar", []))
@@ -78,7 +136,9 @@ def build_daily_prompt(ctx: dict, profile: dict) -> str:
     context_sections += _format_context_section("Research Findings", ctx.get("research", []))
     context_sections += _format_context_section("Platform Health", ctx.get("health", []))
     context_sections += _format_context_section("Project Activity", ctx.get("project_activity", []))
+    context_sections += _format_context_section("Bot Conversations (Telegram & Discord)", ctx.get("bot_conversations", []))
 
+    health_section = _build_health_section()
     today = datetime.now().strftime("%A, %B %d, %Y")
 
     return f"""You are generating a daily educational digest for Alex Somerville — a freelance developer,
@@ -92,6 +152,9 @@ teach something from it.
 ## Learning Profile (calibrate your depth and style to this)
 {profile_text}
 
+## System Health (MUST include in first section if there are issues)
+{health_section}
+
 ## Yesterday's Raw Data
 {context_sections}
 
@@ -99,7 +162,7 @@ teach something from it.
 
 Return a JSON array of sections. Each section has:
 - "id": unique identifier like "daily-YYYY-MM-DD-sec-N"
-- "type": one of "recap", "concept", "pattern", "exercise", "health"
+- "type": one of "recap", "concept", "pattern", "exercise", "health", "status"
 - "title": short, engaging title
 - "content": markdown content (2-4 paragraphs). Explain WHY, not just what.
 - "domain": the technical domain (e.g., "react", "python", "infrastructure", "git", "architecture")
@@ -107,13 +170,13 @@ Return a JSON array of sections. Each section has:
 
 Guidelines:
 - 4-6 sections per digest
-- Start with a recap section summarizing the day's main theme
+- **FIRST section MUST be type "status"** — system health and action items. If the System Health section above shows issues, lead with those prominently. If all clear, a brief "all systems healthy" line followed by the day's main theme.
 - Include at least one "concept" or "pattern" section that teaches something
-- If there was health data, include a brief "health" section
 - If there's enough material, include an "exercise" — a small challenge related to yesterday's work
 - Tone: warm, direct, conversational. Like a mentor explaining things over coffee.
 - Reference specific commits, emails, or events when explaining concepts.
 - Depth should match the learning profile — don't over-explain things Alex already knows.
+- Do NOT include any preamble, thinking, or commentary outside the JSON array.
 
 Return ONLY the JSON array, no other text."""
 
@@ -123,11 +186,14 @@ def build_weekly_prompt(ctx: dict, profile: dict) -> str:
     profile_text = _format_profile(profile)
 
     context_sections = ""
+    context_sections += _format_context_section("Session Handoffs", ctx.get("handoffs", []))
+    context_sections += _format_context_section("Claude Code Sessions", ctx.get("claude_sessions", []))
     context_sections += _format_context_section("Git Commits This Week", ctx.get("git", []))
     context_sections += _format_context_section("Research Findings", ctx.get("research", []))
     context_sections += _format_context_section("Project Activity", ctx.get("project_activity", []))
     context_sections += _format_context_section("Conversations", ctx.get("conversations", []))
     context_sections += _format_context_section("Platform Health", ctx.get("health", []))
+    context_sections += _format_context_section("Bot Conversations (Telegram & Discord)", ctx.get("bot_conversations", []))
 
     today = datetime.now().strftime("%A, %B %d, %Y")
 
@@ -169,8 +235,16 @@ Return ONLY the JSON array, no other text."""
 def generate(digest_type: str) -> dict | None:
     """Orchestrate: gather context -> build prompt -> claude -p -> parse -> store -> notify."""
     import sqlite3
+    import sys
+    sys.path.insert(0, str(PLUGIN_ROOT / "shared"))
+    try:
+        from agent_heartbeat import agent_start, agent_complete, agent_fail
+    except ImportError:
+        agent_start = agent_complete = agent_fail = lambda *a, **k: "no-heartbeat"
 
-    db = sqlite3.connect(context_mod.DB_PATH)
+    run_id = agent_start("learning", f"Generating {digest_type} digest")
+
+    db = sqlite3.connect(context_mod.DB_PATH, timeout=30)
     db.row_factory = sqlite3.Row
 
     # Determine time range
@@ -293,6 +367,9 @@ def generate(digest_type: str) -> dict | None:
     db.close()
 
     print(f"Digest saved: {len(sections)} sections, {duration_ms}ms")
+
+    agent_complete("learning", run_id, f"{digest_type} digest: {len(sections)} sections",
+                   {"sections": len(sections), "duration_ms": duration_ms})
 
     # Send Telegram notification
     _notify_telegram(digest_type, title, len(sections))

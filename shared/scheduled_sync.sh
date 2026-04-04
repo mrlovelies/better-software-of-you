@@ -18,6 +18,13 @@ DATA_DIR="${HOME}/.local/share/software-of-you"
 LOG_DIR="${DATA_DIR}/logs"
 LOG_FILE="${LOG_DIR}/sync.log"
 
+# --- Resolve Python: prefer MCP venv, fall back to system python3 ---
+if [[ -x "${VENV_PYTHON}" ]]; then
+    SYNC_PYTHON="${VENV_PYTHON}"
+else
+    SYNC_PYTHON="$(command -v python3 || true)"
+fi
+
 # --- Ensure log directory exists ---
 mkdir -p "${LOG_DIR}"
 
@@ -44,8 +51,8 @@ rotate_log() {
 }
 
 # --- Pre-flight checks ---
-if [[ ! -x "${VENV_PYTHON}" ]]; then
-    log "ERROR: MCP venv Python not found at ${VENV_PYTHON}"
+if [[ -z "${SYNC_PYTHON}" || ! -x "${SYNC_PYTHON}" ]]; then
+    log "ERROR: No Python3 found (tried MCP venv and system python3)"
     exit 0  # Exit 0 so launchd doesn't mark the job as failed
 fi
 
@@ -59,7 +66,7 @@ log "--- Sync started ---"
 
 export CLAUDE_PLUGIN_ROOT
 
-sync_result=$(${VENV_PYTHON} -c '
+sync_result=$(${SYNC_PYTHON} -c '
 import json, os, sys
 
 plugin_root = os.environ["CLAUDE_PLUGIN_ROOT"]
@@ -76,6 +83,25 @@ if [[ -z "${sync_result}" ]]; then
 fi
 
 log "Result: ${sync_result}"
+
+# --- Alert on failure via Telegram ---
+sync_status=$(echo "${sync_result}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "parse_error")
+
+if [[ "${sync_status}" != "ok" && "${sync_status}" != "skipped" ]]; then
+    # Load Telegram creds from .env
+    ENV_FILE="${CLAUDE_PLUGIN_ROOT}/.env"
+    if [[ -f "${ENV_FILE}" ]]; then
+        BOT_TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' "${ENV_FILE}" | cut -d= -f2- | tr -d "'\"")
+        OWNER_ID=$(grep '^TELEGRAM_OWNER_ID=' "${ENV_FILE}" | cut -d= -f2- | tr -d "'\"")
+        if [[ -n "${BOT_TOKEN}" && -n "${OWNER_ID}" ]]; then
+            HOSTNAME=$(hostname -s 2>/dev/null || echo "unknown")
+            MSG="⚠️ SoY sync failed on ${HOSTNAME}%0AStatus: ${sync_status}%0AResult: ${sync_result:0:200}"
+            curl -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${OWNER_ID}&text=${MSG}" >/dev/null 2>&1 || true
+            log "Telegram alert sent (status: ${sync_status})"
+        fi
+    fi
+fi
+
 log "--- Sync complete ---"
 
 # --- Rotate log to prevent unbounded growth ---

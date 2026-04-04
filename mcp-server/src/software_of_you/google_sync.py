@@ -78,7 +78,8 @@ def sync_gmail(token: str | None = None, account_email: str | None = None) -> di
 
     try:
         # Fetch recent message list
-        url = f"{GMAIL_API}/messages?maxResults=50&q=newer_than:7d"
+        q = urllib.parse.quote("newer_than:7d -category:promotions -category:social -category:updates -category:forums")
+        url = f"{GMAIL_API}/messages?maxResults=50&q={q}"
         data = _api_get(url, token)
         messages = data.get("messages", [])
 

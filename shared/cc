@@ -69,7 +69,7 @@ trap 'rm -f "$handoff_tmp"' EXIT
 
 BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 
-claude -p -c "$(cat <<'PROMPT'
+read -r -d '' HANDOFF_PROMPT <<'PROMPT'
 Generate a concise session handoff. Output ONLY the markdown below, nothing else — no preamble, no sign-off, no commentary.
 
 ## Session Handoff — [today's date]
@@ -90,7 +90,8 @@ Generate a concise session handoff. Output ONLY the markdown below, nothing else
 - Branch: [current branch]
 - Uncommitted: [yes/no]
 PROMPT
-)" > "$handoff_tmp" 2>/dev/null
+
+claude -p -c "$HANDOFF_PROMPT" > "$handoff_tmp" 2>/dev/null
 
 # Validate we got something useful (at least 50 chars, contains "Done" or "Handoff")
 handoff_content=$(cat "$handoff_tmp")

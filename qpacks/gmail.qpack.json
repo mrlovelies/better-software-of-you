@@ -25,7 +25,7 @@
       "context_queries": [
         {
           "key": "queue",
-          "sql": "SELECT contact_name, from_name, subject, snippet, days_old, urgency FROM v_email_response_queue ORDER BY CASE urgency WHEN 'overdue' THEN 0 WHEN 'aging' THEN 1 ELSE 2 END, days_old DESC LIMIT 15"
+          "sql": "SELECT contact_name, from_name, subject, snippet, days_old, urgency FROM v_email_response_queue WHERE contact_id IS NOT NULL ORDER BY CASE urgency WHEN 'overdue' THEN 0 WHEN 'aging' THEN 1 ELSE 2 END, days_old DESC LIMIT 15"
         }
       ],
       "answer_format": "data_table",
@@ -106,6 +106,6 @@
     }
   ],
   "_data_tier": "rich",
-  "generated_at": "2026-04-07T16:49:22.913507",
+  "generated_at": "2026-04-07T17:39:31.374633",
   "data_tier": "rich"
 }

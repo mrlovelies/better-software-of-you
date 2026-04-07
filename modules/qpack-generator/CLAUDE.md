@@ -98,8 +98,36 @@ Serves everything over HTTP for frontend consumption. Six endpoints covering QPa
 
 - **No GUI** — this is the backend/API layer. The Tauri/React shell that renders QPacks as clickable cards is the next phase.
 - **LLM execution is optional** — works fully without Ollama. Questions that need LLM gracefully degrade to showing raw data.
-- **No auto-generated questions** — templates are hand-authored. The pipeline could scan schema and generate candidate questions via LLM, but that's a future enhancement. The hand-authored templates are the source of truth — they have tested SQL and predictable output.
+- **No auto-generated questions (yet)** — templates are currently hand-authored. See "The Generator Vision" below for where this is headed.
 - **No cost tracking** — local LLM usage isn't metered. Cloud API budgeting would come with the Pro tier.
+
+## The Generator Vision: Why This Is Called a "Generator"
+
+The pipeline today loads hand-authored question templates. But the architecture is designed for something bigger.
+
+**The Specsite pipeline** (Alex's website generation system) follows this pattern:
+1. **Discover** businesses via Google Places
+2. **Harvest** their reviews, photos, hours
+3. **Generate** a website from that data
+4. **QA** via Lighthouse + screenshots
+5. **Deploy** to Cloudflare
+
+**The QPack generator follows the same pattern**, pointed inward at SoY's own data:
+1. **Discover** — scan installed modules, detect computed views, check what columns exist, what data is populated
+2. **Harvest** — sample data shapes, understand relationships between tables, detect which views have meaningful content
+3. **Generate** — today this is "load a template." The next evolution: a local LLM examines the schema + sample data and proposes candidate questions with SQL context queries. "This view has `days_silent` and `active_projects` columns — a useful question would be 'Which active clients haven't heard from me?'"
+4. **QA** — validate the generated SQL runs, check it returns data, score the question for relevance (the validate + filter + health steps already do this)
+5. **Deploy** — approved questions get written to QPack JSON alongside hand-authored ones
+
+**This is what makes "infinitely adaptable" real instead of marketing.** When Kerry installs speed-to-lead and creates the `stl_leads` table, the pipeline wouldn't just activate pre-written templates — it would discover the new table, understand its columns (`received_at`, `first_response_at`, `status`, `source`), and generate questions like "What's my fastest response time?" or "Which source has the most leads?" without anyone writing a template.
+
+**The pipeline is modular for exactly this reason.** Adding the LLM generation step is:
+```python
+p.insert_after("template", LLMGenerateStep())
+```
+The validation, filtering, and adaptation steps downstream catch any bad SQL the LLM produces. The hand-authored templates remain the trusted baseline. Generated questions are additive.
+
+**What's built today:** The framework that makes this possible — modular steps, schema scanning, query validation, data-state adaptation. The generation step is the next piece to plug in.
 
 ## Included: The full vision doc
 

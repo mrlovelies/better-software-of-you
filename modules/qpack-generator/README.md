@@ -171,3 +171,16 @@ This pipeline is one piece of the SoY Desktop vision:
 5. **Extension system** → third-party modules ship their own QPack templates
 
 The pipeline pattern (scan → evaluate → generate → validate → deploy) is the same one used by Specsite for website generation and ambient-research for intelligence gathering. QPacks are a new output format for a proven pipeline architecture.
+
+## Where this is headed: self-generating questions
+
+Today the pipeline loads hand-authored templates. The architecture is designed for the next step: **the pipeline generates its own questions from schema discovery.**
+
+```
+Specsite:  discover businesses → harvest data → generate website → QA → deploy
+QPack:     discover schema    → harvest data  → generate questions → QA → deploy
+```
+
+When a new extension installs and creates tables, the pipeline would scan the new schema, understand the columns and relationships, and propose candidate questions with SQL context queries — without anyone writing a template. The existing validation, filtering, and health steps catch bad SQL before it ships. Hand-authored templates remain the trusted baseline; generated questions are additive.
+
+The pipeline is modular for this reason: `p.insert_after("template", LLMGenerateStep())` and it slots in.

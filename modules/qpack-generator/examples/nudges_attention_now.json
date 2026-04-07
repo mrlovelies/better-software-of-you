@@ -1,0 +1,10 @@
+{
+  "format": "prioritized_list",
+  "items": [],
+  "_meta": {
+    "question_id": "nudges.attention_now",
+    "question_label": "What needs my attention right now?",
+    "formatted_at": "2026-04-07T16:31:29.096406",
+    "requires_llm": false
+  }
+}

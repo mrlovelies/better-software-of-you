@@ -1,0 +1,153 @@
+{
+  "module": "crm",
+  "version": "1.0.0",
+  "persona": {
+    "name": "Relationship Advisor",
+    "tone": "direct, warm, proactive",
+    "system_prompt": "You are a relationship intelligence advisor for a freelancer. You analyze CRM data — contact history, email frequency, meeting cadence, commitment follow-through — to surface what matters. Be specific with names and dates. Never invent data that isn't in the context. When something is going cold, say it directly."
+  },
+  "questions": [
+    {
+      "id": "crm.who_priority_week",
+      "label": "Who should I prioritize this week?",
+      "short_label": "This week's priorities",
+      "keywords": [
+        "priority",
+        "week",
+        "focus",
+        "who",
+        "attention"
+      ],
+      "featured": true,
+      "cross_module": [
+        "calendar",
+        "commitments",
+        "email"
+      ],
+      "data_requires": {
+        "contacts": 3
+      },
+      "context_queries": [
+        {
+          "key": "nudges",
+          "sql": "SELECT * FROM v_nudge_items WHERE tier IN ('urgent', 'soon') ORDER BY tier, days_value DESC LIMIT 20"
+        },
+        {
+          "key": "upcoming_meetings",
+          "sql": "SELECT * FROM v_meeting_prep WHERE time_context IN ('today', 'tomorrow', 'upcoming') AND minutes_until < 10080 AND minutes_until > 0 ORDER BY start_time LIMIT 10"
+        },
+        {
+          "key": "response_queue",
+          "sql": "SELECT * FROM v_email_response_queue WHERE urgency IN ('overdue', 'aging') LIMIT 10"
+        },
+        {
+          "key": "contact_health",
+          "sql": "SELECT name, company, days_silent, emails_30d, active_projects, relationship_depth, trajectory FROM v_contact_health WHERE days_silent > 14 AND active_projects > 0 ORDER BY days_silent DESC LIMIT 10"
+        }
+      ],
+      "prompt_template": "Based on the following data about my contacts, meetings, pending emails, and nudges, tell me the 3-5 people I should focus on this week and why.\n\n## Nudges (overdue/upcoming)\n{nudges}\n\n## Meetings this week\n{upcoming_meetings}\n\n## Emails awaiting reply\n{response_queue}\n\n## Active contacts going quiet\n{contact_health}\n\nFor each person, give me: their name, why they need attention, and one specific action I should take.",
+      "answer_format": "prioritized_list",
+      "requires_llm": true,
+      "llm_tier": "local_preferred"
+    },
+    {
+      "id": "crm.cold_relationships",
+      "label": "Which relationships are going cold?",
+      "short_label": "Going cold",
+      "keywords": [
+        "cold",
+        "silent",
+        "quiet",
+        "lost touch",
+        "inactive"
+      ],
+      "featured": true,
+      "data_requires": {
+        "contacts": 3
+      },
+      "context_queries": [
+        {
+          "key": "cold",
+          "sql": "SELECT name, company, email, days_silent, emails_30d, interactions_30d, active_projects, relationship_depth, trajectory FROM v_contact_health WHERE days_silent > 21 ORDER BY days_silent DESC LIMIT 15"
+        }
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "crm.no_contact_month",
+      "label": "Who haven't I talked to in over a month?",
+      "short_label": "30+ days silent",
+      "keywords": [
+        "month",
+        "30 days",
+        "haven't talked",
+        "silent"
+      ],
+      "featured": false,
+      "data_requires": {
+        "contacts": 3
+      },
+      "context_queries": [
+        {
+          "key": "silent",
+          "sql": "SELECT name, company, days_silent, emails_30d, active_projects, trajectory FROM v_contact_health WHERE days_silent > 30 ORDER BY days_silent DESC"
+        }
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "crm.discovery",
+      "label": "Who's emailing me that I haven't added yet?",
+      "short_label": "Undiscovered contacts",
+      "keywords": [
+        "discover",
+        "new",
+        "missing",
+        "untracked",
+        "unknown"
+      ],
+      "featured": false,
+      "data_requires": {
+        "emails": 10
+      },
+      "context_queries": [
+        {
+          "key": "candidates",
+          "sql": "SELECT from_name, from_address, email_count, thread_count, days_since_last, relevance_score FROM v_discovery_candidates LIMIT 15"
+        }
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "crm.company_contacts",
+      "label": "Show me everyone at {company}",
+      "short_label": "Company lookup",
+      "keywords": [
+        "company",
+        "at",
+        "everyone",
+        "team",
+        "org"
+      ],
+      "featured": false,
+      "parameterized": true,
+      "data_requires": {
+        "contacts": 1
+      },
+      "context_queries": [
+        {
+          "key": "contacts",
+          "sql": "SELECT name, role, email, days_silent, emails_30d FROM v_contact_health WHERE company LIKE '%{company}%' ORDER BY name"
+        }
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    }
+  ],
+  "_data_tier": "rich",
+  "generated_at": "2026-04-07T16:49:22.913081",
+  "data_tier": "rich"
+}

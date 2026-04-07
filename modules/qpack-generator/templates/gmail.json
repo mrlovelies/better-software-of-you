@@ -1,0 +1,64 @@
+{
+  "module": "gmail",
+  "version": "1.0.0",
+  "persona": {
+    "name": "Communications Analyst",
+    "tone": "efficient, prioritization-focused",
+    "system_prompt": "You analyze email patterns and communication health. Focus on what needs a reply, who's most active, and what might be falling through the cracks. Be specific with names and timeframes."
+  },
+  "questions": [
+    {
+      "id": "email.needs_reply",
+      "label": "What emails need my reply?",
+      "short_label": "Response queue",
+      "keywords": ["reply", "respond", "unanswered", "inbox", "email"],
+      "featured": true,
+      "data_requires": {"emails": 5},
+      "context_queries": [
+        {"key": "queue", "sql": "SELECT contact_name, from_name, subject, snippet, days_old, urgency FROM v_email_response_queue ORDER BY CASE urgency WHEN 'overdue' THEN 0 WHEN 'aging' THEN 1 ELSE 2 END, days_old DESC LIMIT 15"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "email.contact_threads",
+      "label": "What's {contact} been emailing about?",
+      "short_label": "Contact emails",
+      "keywords": ["email", "thread", "sent", "wrote", "message"],
+      "featured": false,
+      "parameterized": true,
+      "data_requires": {"emails": 1},
+      "context_queries": [
+        {"key": "emails", "sql": "SELECT e.subject, e.snippet, e.direction, e.received_at, e.from_name FROM emails e JOIN contacts c ON c.id = e.contact_id WHERE c.name LIKE '%{contact}%' ORDER BY e.received_at DESC LIMIT 15"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "email.most_active",
+      "label": "Who's emailing me the most?",
+      "short_label": "Most active",
+      "keywords": ["most", "active", "frequent", "volume", "busy"],
+      "featured": false,
+      "data_requires": {"emails": 10},
+      "context_queries": [
+        {"key": "active", "sql": "SELECT c.name, c.company, COUNT(*) as email_count, COUNT(DISTINCT e.thread_id) as threads, MAX(e.received_at) as last_email FROM emails e JOIN contacts c ON c.id = e.contact_id WHERE e.received_at > datetime('now', '-30 days') GROUP BY c.id ORDER BY email_count DESC LIMIT 15"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "email.untracked",
+      "label": "Who's emailing me that isn't in my CRM?",
+      "short_label": "Untracked emailers",
+      "keywords": ["untracked", "unknown", "missing", "not in CRM", "discover"],
+      "featured": true,
+      "data_requires": {"emails": 10},
+      "context_queries": [
+        {"key": "candidates", "sql": "SELECT from_name, from_address, email_count, thread_count, days_since_last, relevance_score FROM v_discovery_candidates ORDER BY relevance_score DESC LIMIT 15"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    }
+  ]
+}

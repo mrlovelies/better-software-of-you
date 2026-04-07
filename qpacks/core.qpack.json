@@ -1,0 +1,131 @@
+{
+  "module": "core",
+  "version": "1.0.0",
+  "persona": {
+    "name": "Attention Manager",
+    "tone": "urgent-first, action-oriented, direct",
+    "system_prompt": "You manage attention and priority. Surface what needs action now, what's coming soon, and what to be aware of. Be blunt about overdue items. Never bury urgency."
+  },
+  "questions": [
+    {
+      "id": "nudges.attention_now",
+      "label": "What needs my attention right now?",
+      "short_label": "Urgent items",
+      "keywords": [
+        "attention",
+        "urgent",
+        "now",
+        "overdue",
+        "important"
+      ],
+      "featured": true,
+      "data_requires": {},
+      "context_queries": [
+        {
+          "key": "urgent",
+          "sql": "SELECT nudge_type, entity_name, description, days_value, extra_context, icon FROM v_nudge_items WHERE tier = 'urgent' ORDER BY days_value DESC"
+        },
+        {
+          "key": "summary",
+          "sql": "SELECT tier, count FROM v_nudge_summary"
+        }
+      ],
+      "answer_format": "prioritized_list",
+      "requires_llm": false
+    },
+    {
+      "id": "nudges.coming_soon",
+      "label": "What's coming up in the next few days?",
+      "short_label": "Coming soon",
+      "keywords": [
+        "soon",
+        "coming",
+        "upcoming",
+        "next",
+        "days"
+      ],
+      "featured": false,
+      "data_requires": {},
+      "context_queries": [
+        {
+          "key": "soon",
+          "sql": "SELECT nudge_type, entity_name, description, days_value, extra_context, icon FROM v_nudge_items WHERE tier = 'soon' ORDER BY days_value ASC"
+        }
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "nudges.awareness",
+      "label": "What should I be aware of?",
+      "short_label": "Awareness",
+      "keywords": [
+        "aware",
+        "background",
+        "watch",
+        "monitor"
+      ],
+      "featured": false,
+      "data_requires": {},
+      "context_queries": [
+        {
+          "key": "awareness",
+          "sql": "SELECT nudge_type, entity_name, description, days_value, extra_context, icon FROM v_nudge_items WHERE tier = 'awareness' ORDER BY nudge_type, days_value DESC"
+        }
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "nudges.full_report",
+      "label": "Give me the full nudge report",
+      "short_label": "Full report",
+      "keywords": [
+        "nudge",
+        "report",
+        "everything",
+        "all",
+        "full"
+      ],
+      "featured": false,
+      "data_requires": {},
+      "context_queries": [
+        {
+          "key": "all_nudges",
+          "sql": "SELECT nudge_type, tier, entity_name, description, days_value, extra_context FROM v_nudge_items ORDER BY CASE tier WHEN 'urgent' THEN 0 WHEN 'soon' THEN 1 ELSE 2 END, days_value DESC"
+        },
+        {
+          "key": "summary",
+          "sql": "SELECT tier, count FROM v_nudge_summary"
+        }
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "nudges.slipped",
+      "label": "What did I let slip this week?",
+      "short_label": "Slipped items",
+      "keywords": [
+        "slip",
+        "forgot",
+        "missed",
+        "dropped",
+        "ball"
+      ],
+      "featured": false,
+      "data_requires": {},
+      "context_queries": [
+        {
+          "key": "slipped",
+          "sql": "SELECT nudge_type, entity_name, description, days_value, extra_context FROM v_nudge_items WHERE tier = 'urgent' AND days_value >= 3 ORDER BY days_value DESC"
+        }
+      ],
+      "answer_format": "prioritized_list",
+      "requires_llm": false
+    }
+  ],
+  "_data_tier": "rich",
+  "generated_at": "2026-04-07T16:49:22.913758",
+  "data_tier": "rich"
+}

@@ -1,0 +1,80 @@
+{
+  "module": "project-tracker",
+  "version": "1.0.0",
+  "persona": {
+    "name": "Project Strategist",
+    "tone": "pragmatic, scope-aware, milestone-oriented",
+    "system_prompt": "You are a project strategist for a freelancer managing multiple client projects. You analyze task completion, milestone progress, and deadline proximity. Be direct about what's behind schedule. Focus on the critical path."
+  },
+  "questions": [
+    {
+      "id": "projects.whats_overdue",
+      "label": "What's overdue across all projects?",
+      "short_label": "Overdue tasks",
+      "keywords": ["overdue", "late", "behind", "deadline", "missed"],
+      "featured": true,
+      "data_requires": {"projects": 1, "tasks": 1},
+      "context_queries": [
+        {"key": "overdue_tasks", "sql": "SELECT entity_name as task, extra_context as project, days_value as days_overdue FROM v_nudge_items WHERE nudge_type = 'task' AND tier = 'urgent' ORDER BY days_value DESC"},
+        {"key": "overdue_commitments", "sql": "SELECT entity_name, description, days_value FROM v_nudge_items WHERE nudge_type = 'commitment' AND tier = 'urgent' ORDER BY days_value DESC"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "projects.health_overview",
+      "label": "How are my projects tracking?",
+      "short_label": "Project health",
+      "keywords": ["projects", "status", "tracking", "progress", "health"],
+      "featured": true,
+      "data_requires": {"projects": 1},
+      "context_queries": [
+        {"key": "health", "sql": "SELECT name, status, completion_pct, total_tasks, done_tasks, overdue_tasks, days_to_target, days_since_activity, client_name FROM v_project_health ORDER BY CASE WHEN overdue_tasks > 0 THEN 0 ELSE 1 END, completion_pct ASC"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "projects.what_next",
+      "label": "What should I work on next?",
+      "short_label": "Next action",
+      "keywords": ["next", "work on", "focus", "todo", "do"],
+      "featured": true,
+      "data_requires": {"tasks": 3},
+      "context_queries": [
+        {"key": "urgent_tasks", "sql": "SELECT entity_name as task, extra_context as project, tier, days_value FROM v_nudge_items WHERE nudge_type = 'task' ORDER BY CASE tier WHEN 'urgent' THEN 0 WHEN 'soon' THEN 1 ELSE 2 END, days_value DESC LIMIT 10"},
+        {"key": "project_health", "sql": "SELECT name, completion_pct, overdue_tasks, days_to_target FROM v_project_health WHERE overdue_tasks > 0 OR (days_to_target IS NOT NULL AND days_to_target < 14) ORDER BY days_to_target ASC LIMIT 5"}
+      ],
+      "prompt_template": "Based on my task urgency and project deadlines, what should I focus on next? Prioritize by: (1) overdue items, (2) approaching deadlines, (3) highest impact.\n\n## Urgent/Soon Tasks\n{urgent_tasks}\n\n## Projects at Risk\n{project_health}\n\nGive me a prioritized list of 3-5 specific actions with the reasoning.",
+      "answer_format": "prioritized_list",
+      "requires_llm": true,
+      "llm_tier": "local_preferred"
+    },
+    {
+      "id": "projects.stalled",
+      "label": "Which projects are stalled?",
+      "short_label": "Stalled projects",
+      "keywords": ["stalled", "stale", "inactive", "stuck", "dormant"],
+      "featured": false,
+      "data_requires": {"projects": 2},
+      "context_queries": [
+        {"key": "stalled", "sql": "SELECT name, status, days_since_activity, completion_pct, total_tasks, done_tasks FROM v_project_health WHERE days_since_activity > 14 ORDER BY days_since_activity DESC"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "projects.due_this_week",
+      "label": "What's due this week?",
+      "short_label": "Due this week",
+      "keywords": ["due", "this week", "upcoming", "deadline"],
+      "featured": false,
+      "data_requires": {"tasks": 1},
+      "context_queries": [
+        {"key": "due", "sql": "SELECT t.title as task, p.name as project, t.due_date, t.priority, t.status FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.status NOT IN ('done') AND t.due_date BETWEEN date('now') AND date('now', '+7 days') ORDER BY t.due_date ASC"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    }
+  ]
+}

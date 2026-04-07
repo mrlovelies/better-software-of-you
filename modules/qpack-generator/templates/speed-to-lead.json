@@ -1,0 +1,109 @@
+{
+  "module": "speed-to-lead",
+  "version": "0.1.0",
+  "extension": true,
+  "description": "QPack concept for the Speed-to-Lead extension — AI-powered instant lead response. These questions demonstrate how Kerry's gstack product integrates as a SoY extension. Tables prefixed stl_ would be created by the extension's migration.",
+  "persona": {
+    "name": "Lead Response Analyst",
+    "tone": "urgent, metric-driven, competitive",
+    "system_prompt": "You analyze lead response performance. Speed matters — every minute of delay reduces conversion probability by 10%. Be direct about slow response times. Celebrate fast ones. Ground every claim in the data."
+  },
+  "questions": [
+    {
+      "id": "stl.response_times",
+      "label": "What's my average response time to leads?",
+      "short_label": "Response time",
+      "keywords": ["response time", "lead", "speed", "fast", "slow", "gstack"],
+      "featured": true,
+      "data_requires": {"stl_leads": 5},
+      "context_queries": [
+        {
+          "key": "times",
+          "sql": "SELECT l.id, c.name as contact_name, l.source, l.received_at, l.first_response_at, CAST((julianday(l.first_response_at) - julianday(l.received_at)) * 24 * 60 AS INTEGER) as response_minutes FROM stl_leads l LEFT JOIN contacts c ON c.id = l.contact_id WHERE l.first_response_at IS NOT NULL ORDER BY l.received_at DESC LIMIT 20"
+        },
+        {
+          "key": "avg",
+          "sql": "SELECT CAST(AVG((julianday(first_response_at) - julianday(received_at)) * 24 * 60) AS INTEGER) as avg_minutes, MIN(CAST((julianday(first_response_at) - julianday(received_at)) * 24 * 60 AS INTEGER)) as fastest_minutes, MAX(CAST((julianday(first_response_at) - julianday(received_at)) * 24 * 60 AS INTEGER)) as slowest_minutes, COUNT(*) as total_responded FROM stl_leads WHERE first_response_at IS NOT NULL"
+        }
+      ],
+      "answer_format": "metric_snapshot",
+      "requires_llm": false
+    },
+    {
+      "id": "stl.missed_leads",
+      "label": "Any leads I haven't responded to?",
+      "short_label": "Unresponded leads",
+      "keywords": ["missed", "unresponded", "waiting", "lead", "pending"],
+      "featured": true,
+      "data_requires": {"stl_leads": 1},
+      "context_queries": [
+        {
+          "key": "waiting",
+          "sql": "SELECT l.id, c.name as contact_name, l.source, l.received_at, CAST((julianday('now') - julianday(l.received_at)) * 24 * 60 AS INTEGER) as waiting_minutes FROM stl_leads l LEFT JOIN contacts c ON c.id = l.contact_id WHERE l.first_response_at IS NULL AND l.status = 'new' ORDER BY l.received_at ASC"
+        }
+      ],
+      "answer_format": "prioritized_list",
+      "requires_llm": false
+    },
+    {
+      "id": "stl.conversion_funnel",
+      "label": "How's my lead conversion funnel?",
+      "short_label": "Conversion funnel",
+      "keywords": ["funnel", "conversion", "leads", "pipeline", "gstack"],
+      "featured": true,
+      "data_requires": {"stl_leads": 10},
+      "context_queries": [
+        {
+          "key": "funnel",
+          "sql": "SELECT status, COUNT(*) as count FROM stl_leads GROUP BY status ORDER BY CASE status WHEN 'new' THEN 0 WHEN 'contacted' THEN 1 WHEN 'qualified' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END"
+        },
+        {
+          "key": "response_by_status",
+          "sql": "SELECT status, CAST(AVG((julianday(first_response_at) - julianday(received_at)) * 24 * 60) AS INTEGER) as avg_response_min FROM stl_leads WHERE first_response_at IS NOT NULL GROUP BY status"
+        }
+      ],
+      "prompt_template": "Analyze my lead conversion funnel.\n\n## Funnel Stages\n{funnel}\n\n## Response Time by Outcome\n{response_by_status}\n\nGive me:\n1. Where leads are getting stuck\n2. Whether response speed correlates with conversion\n3. One specific action to improve conversion rate",
+      "answer_format": "insight_synthesis",
+      "requires_llm": true,
+      "llm_tier": "local_preferred"
+    },
+    {
+      "id": "stl.best_sources",
+      "label": "Which lead sources convert best?",
+      "short_label": "Best sources",
+      "keywords": ["source", "channel", "best", "convert", "where"],
+      "featured": false,
+      "data_requires": {"stl_leads": 10},
+      "context_queries": [
+        {
+          "key": "sources",
+          "sql": "SELECT source, COUNT(*) as total, SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as converted, ROUND(SUM(CASE WHEN status = 'converted' THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) as conv_rate, CAST(AVG(CASE WHEN first_response_at IS NOT NULL THEN (julianday(first_response_at) - julianday(received_at)) * 24 * 60 END) AS INTEGER) as avg_response_min FROM stl_leads GROUP BY source ORDER BY conv_rate DESC"
+        }
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "stl.weekly_performance",
+      "label": "How did lead response go this week?",
+      "short_label": "Weekly performance",
+      "keywords": ["week", "performance", "leads", "review"],
+      "featured": false,
+      "data_requires": {"stl_leads": 3},
+      "context_queries": [
+        {
+          "key": "this_week",
+          "sql": "SELECT COUNT(*) as new_leads, SUM(CASE WHEN first_response_at IS NOT NULL THEN 1 ELSE 0 END) as responded, SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as converted, CAST(AVG(CASE WHEN first_response_at IS NOT NULL THEN (julianday(first_response_at) - julianday(received_at)) * 24 * 60 END) AS INTEGER) as avg_response_min FROM stl_leads WHERE received_at > datetime('now', '-7 days')"
+        },
+        {
+          "key": "last_week",
+          "sql": "SELECT COUNT(*) as new_leads, SUM(CASE WHEN first_response_at IS NOT NULL THEN 1 ELSE 0 END) as responded, SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as converted, CAST(AVG(CASE WHEN first_response_at IS NOT NULL THEN (julianday(first_response_at) - julianday(received_at)) * 24 * 60 END) AS INTEGER) as avg_response_min FROM stl_leads WHERE received_at BETWEEN datetime('now', '-14 days') AND datetime('now', '-7 days')"
+        }
+      ],
+      "prompt_template": "Compare my lead response performance this week vs last week.\n\n## This Week\n{this_week}\n\n## Last Week\n{last_week}\n\nHighlight: what improved, what got worse, and one thing to focus on next week.",
+      "answer_format": "insight_synthesis",
+      "requires_llm": true,
+      "llm_tier": "local_preferred"
+    }
+  ]
+}

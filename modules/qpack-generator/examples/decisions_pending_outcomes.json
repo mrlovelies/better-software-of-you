@@ -1,0 +1,15 @@
+{
+  "format": "data_table",
+  "columns": [],
+  "rows": [],
+  "row_count": 0,
+  "entity_links": [],
+  "sort_key": null,
+  "sort_direction": "desc",
+  "_meta": {
+    "question_id": "decisions.pending_outcomes",
+    "question_label": "What decisions are pending outcomes?",
+    "formatted_at": "2026-04-07T16:31:29.099953",
+    "requires_llm": false
+  }
+}

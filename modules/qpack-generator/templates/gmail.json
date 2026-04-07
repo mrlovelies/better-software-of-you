@@ -15,7 +15,7 @@
       "featured": true,
       "data_requires": {"emails": 5},
       "context_queries": [
-        {"key": "queue", "sql": "SELECT contact_name, from_name, subject, snippet, days_old, urgency FROM v_email_response_queue ORDER BY CASE urgency WHEN 'overdue' THEN 0 WHEN 'aging' THEN 1 ELSE 2 END, days_old DESC LIMIT 15"}
+        {"key": "queue", "sql": "SELECT contact_name, from_name, subject, snippet, days_old, urgency FROM v_email_response_queue WHERE contact_id IS NOT NULL ORDER BY CASE urgency WHEN 'overdue' THEN 0 WHEN 'aging' THEN 1 ELSE 2 END, days_old DESC LIMIT 15"}
       ],
       "answer_format": "data_table",
       "requires_llm": false

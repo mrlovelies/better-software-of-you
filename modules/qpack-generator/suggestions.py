@@ -80,7 +80,7 @@ def _check_email_backlog(db: sqlite3.Connection) -> dict | None:
     try:
         row = db.execute(
             "SELECT COUNT(*) as n FROM v_email_response_queue "
-            "WHERE urgency IN ('overdue', 'aging')"
+            "WHERE contact_id IS NOT NULL AND urgency IN ('overdue', 'aging')"
         ).fetchone()
         count = row["n"]
         if count > 2:

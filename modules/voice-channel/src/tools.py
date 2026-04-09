@@ -38,49 +38,10 @@ try:
 except ImportError:
     ZoneInfo = None  # type: ignore
 
-try:
-    import phonenumbers  # type: ignore
-except ImportError:
-    phonenumbers = None  # type: ignore
-
+from .persistence import is_owner_phone, normalize_phone as _normalize_phone
 from .vapi_messages import ToolInvocation, ToolResult
 
 log = logging.getLogger("voice-channel.tools")
-
-
-def _normalize_phone(raw: str | None, default_region: str = "CA") -> str | None:
-    """Normalize a phone number to E.164 format.
-
-    Uses phonenumbers library if available (handles all formats reliably:
-    "+14169091519", "416.909.1519", "(416) 909-1519", "1-416-909-1519", etc).
-    Falls back to basic digit extraction if phonenumbers is not installed.
-
-    Returns None if the input can't be parsed as a valid phone number.
-    """
-    if not raw:
-        return None
-    raw = raw.strip()
-    if not raw:
-        return None
-
-    if phonenumbers is not None:
-        try:
-            parsed = phonenumbers.parse(raw, default_region)
-            if phonenumbers.is_valid_number(parsed):
-                return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
-        except phonenumbers.NumberParseException:
-            pass
-        # Fallthrough to basic normalization if parse fails
-
-    # Basic fallback: strip everything except digits, handle leading "1" for NA
-    digits = "".join(c for c in raw if c.isdigit())
-    if len(digits) == 10:
-        return f"+1{digits}"
-    if len(digits) == 11 and digits.startswith("1"):
-        return f"+{digits}"
-    if len(digits) > 0:
-        return f"+{digits}"
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +365,33 @@ def lookup_caller(
 
     # Normalize the query phone to E.164 so we can compare against any format
     normalized_query = _normalize_phone(phone) or phone
+
+    # Owner self-call: the SoY operator is calling their own line. Return
+    # immediately with an owner_call branch BEFORE touching contacts. This
+    # is the only place that knows the caller is the owner — without this
+    # check, the lookup would either return "unknown" (first call) or match
+    # the auto-created `Caller +1...` placeholder (every subsequent call),
+    # neither of which is right.
+    if is_owner_phone(db_path, normalized_query):
+        config = _get_voice_config(db_path)
+        owner_name = (config or {}).get("owner_name") or "the owner"
+        business_name = (config or {}).get("business_name") or "the business"
+        return ToolResult.success(
+            message=(
+                f"The caller is {owner_name} — the {business_name} owner — calling from "
+                "their own line. This is an owner test or admin call. Greet them by name "
+                "and ask what they want to verify or check. Do not treat this like a "
+                "regular customer call and do not offer to take a message."
+            ),
+            data={
+                "known": True,
+                "owner_call": True,
+                "name": owner_name,
+                "business_name": business_name,
+                "phone": phone,
+            },
+            tool_call_id=tool_call_id,
+        )
 
     db = sqlite3.connect(db_path)
     db.row_factory = sqlite3.Row

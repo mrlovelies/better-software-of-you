@@ -373,9 +373,12 @@ def _build_personalized_first_message(lookup_result: ToolResult | None) -> str:
     """Build the first message Vapi will speak on pickup, based on the lookup.
 
     AI disclosure ("virtual assistant") must appear in every variant — that's
-    the PIPEDA + TCPA safety invariant.
+    the PIPEDA + TCPA safety invariant. Even the owner self-test branch
+    keeps the disclosure phrase so the transcript audit trail remains
+    consistent across every call.
 
     Variants:
+        - Owner self-call: "Hi Alex, this is your virtual assistant — owner test line is up, what are we checking?"
         - Known rich contact: "Hi {name}, this is Alex Somerville's virtual assistant — how can I help today?"
         - Placeholder (called before, no name yet): "Hi, this is Alex Somerville's virtual assistant. Good to hear from you again — can I grab your name?"
         - Unknown: "Hi, this is Alex Somerville's virtual assistant. How can I help you today?"
@@ -388,6 +391,18 @@ def _build_personalized_first_message(lookup_result: ToolResult | None) -> str:
         return default_msg
 
     data = lookup_result.data or {}
+
+    # Owner self-call: the SoY operator is calling their own line for testing
+    # or admin. Greet them by name and skip the customer-greeting flow.
+    # Disclosure ("virtual assistant") still appears for transcript audit
+    # consistency.
+    if data.get("owner_call"):
+        owner_name = data.get("name") or "there"
+        owner_first = owner_name.split()[0] if owner_name else "there"
+        return (
+            f"Hi {owner_first}, this is your virtual assistant. "
+            "Owner test line is up — what are we checking?"
+        )
 
     # Unknown caller
     if not data.get("known"):

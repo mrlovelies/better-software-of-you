@@ -17,6 +17,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+try:
+    import phonenumbers  # type: ignore
+except ImportError:
+    phonenumbers = None  # type: ignore
+
 log = logging.getLogger("voice-channel.persistence")
 
 
@@ -27,6 +32,85 @@ def get_db(db_path: Path) -> sqlite3.Connection:
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA busy_timeout=5000")
     return db
+
+
+# ---------------------------------------------------------------------------
+# Phone normalization & owner identity
+# ---------------------------------------------------------------------------
+#
+# Both tools.py and this module need to (a) normalize phone numbers to a
+# canonical form for matching, and (b) recognize when the inbound caller is
+# actually the SoY owner calling their own line. Both lived in tools.py
+# originally, but find_or_create_contact_by_phone needs the same checks at
+# the persistence layer to prevent the auto-placeholder bug. Putting them
+# here makes persistence the single source of truth — tools.py imports
+# from persistence, never the other way around, so there's no cycle.
+
+
+def normalize_phone(raw: str | None, default_region: str = "CA") -> str | None:
+    """Normalize a phone number to E.164 format.
+
+    Uses the phonenumbers library if available (handles all formats reliably:
+    "+14169091519", "416.909.1519", "(416) 909-1519", "1-416-909-1519", etc).
+    Falls back to basic digit extraction if phonenumbers is not installed.
+
+    Returns None if the input can't be parsed as a valid phone number.
+    """
+    if not raw:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+
+    if phonenumbers is not None:
+        try:
+            parsed = phonenumbers.parse(raw, default_region)
+            if phonenumbers.is_valid_number(parsed):
+                return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        except phonenumbers.NumberParseException:
+            pass
+        # Fallthrough to basic normalization if parse fails
+
+    # Basic fallback: strip everything except digits, handle leading "1" for NA
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    if len(digits) > 0:
+        return f"+{digits}"
+    return None
+
+
+def is_owner_phone(db_path: Path, phone: str | None) -> bool:
+    """Return True if `phone` matches the SoY owner's own phone number.
+
+    The owner's phone is read from voice_config.owner_transfer_number — the
+    field set during install for human-transfer routing. Both sides are
+    normalized to E.164 before comparison so storage formats like
+    '416.303.0239' or '+1 (416) 303-0239' all match correctly.
+
+    This is the gate that prevents two distinct bugs from happening:
+    1. Owner test calls polluting `contacts` with `Caller +1...` placeholders
+       (because the owner is not — and should never be — their own contact)
+    2. The lookup branch giving a stranger-style greeting when the owner
+       calls their own line for testing or admin
+    """
+    target = normalize_phone(phone)
+    if not target:
+        return False
+
+    db = get_db(db_path)
+    try:
+        row = db.execute(
+            "SELECT owner_transfer_number FROM voice_config WHERE id = 1"
+        ).fetchone()
+    finally:
+        db.close()
+
+    if not row or not row["owner_transfer_number"]:
+        return False
+    return normalize_phone(row["owner_transfer_number"]) == target
 
 
 # ---------------------------------------------------------------------------
@@ -204,17 +288,32 @@ def find_or_create_contact_by_phone(db_path: Path, phone_number: str) -> int | N
     """Look up a contact by phone number, or create a placeholder.
 
     Match logic:
-    - Exact phone match in contacts.phone
-    - If no match, create a new contact with name=phone_number and source=voice_call
+    - If the phone is the SoY owner's own number, return None — the owner is
+      not their own contact and we must not auto-create a placeholder for
+      themselves (see is_owner_phone for context on the bug this prevents)
+    - Exact phone match in contacts.phone (E.164 input)
+    - Normalized fuzzy match (handles dots, dashes, parens, spaces, missing
+      country code) by normalizing both sides to E.164
+    - If still no match, create a placeholder contact named "Caller +1..."
 
-    Returns the contact_id or None on failure.
+    Returns the contact_id or None on failure / owner-self call.
     """
     if not phone_number:
         return None
 
+    # Owner self-call: never auto-create a placeholder. The owner is the
+    # operator, not a contact. Caller stays unattributed at the contact
+    # layer; the voice_calls row still records the from_number for audit.
+    if is_owner_phone(db_path, phone_number):
+        log.info(
+            "Owner phone %s — refusing to auto-create placeholder (owner is not a contact)",
+            phone_number,
+        )
+        return None
+
     db = get_db(db_path)
     try:
-        # Try exact match first
+        # Fast path: exact match (handles already-E.164-stored numbers)
         row = db.execute(
             "SELECT id FROM contacts WHERE phone = ? AND status = 'active' LIMIT 1",
             (phone_number,),
@@ -222,26 +321,30 @@ def find_or_create_contact_by_phone(db_path: Path, phone_number: str) -> int | N
         if row:
             return row["id"]
 
-        # Try with normalization (strip non-digits except leading +)
-        normalized = "+" + "".join(c for c in phone_number if c.isdigit())
-        row = db.execute(
-            "SELECT id FROM contacts WHERE phone = ? AND status = 'active' LIMIT 1",
-            (normalized,),
-        ).fetchone()
-        if row:
-            return row["id"]
+        # Slow path: normalize the query and every stored phone, then compare.
+        # This handles 416.909.1519 vs +14169091519 vs (416) 909-1519 etc.
+        normalized_query = normalize_phone(phone_number)
+        if normalized_query:
+            candidates = db.execute(
+                "SELECT id, phone FROM contacts WHERE phone IS NOT NULL AND phone != '' AND status = 'active'"
+            ).fetchall()
+            for cand in candidates:
+                if normalize_phone(cand["phone"]) == normalized_query:
+                    return cand["id"]
 
-        # Not found — create a placeholder contact
+        # Not found — create a placeholder contact (callers we don't know yet
+        # but will recognize on subsequent calls so we can ask their name once)
+        store_phone = normalized_query or phone_number
         cursor = db.execute(
             """
             INSERT INTO contacts (name, phone, status, notes, created_at, updated_at)
             VALUES (?, ?, 'active', 'Auto-created from inbound voice call', datetime('now'), datetime('now'))
             """,
-            (f"Caller {phone_number}", phone_number),
+            (f"Caller {store_phone}", store_phone),
         )
         db.commit()
         contact_id = cursor.lastrowid
-        log.info("Auto-created contact %d for phone %s", contact_id, phone_number)
+        log.info("Auto-created contact %d for phone %s", contact_id, store_phone)
         return contact_id
     except sqlite3.OperationalError as e:
         log.error("contacts table error during phone lookup: %s", e)

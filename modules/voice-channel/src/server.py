@@ -31,6 +31,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+# Load env vars from the SoY root .env BEFORE any submodules read os.environ.
+# Voice-channel runs in its own venv with its own systemd unit and a different
+# WorkingDirectory than the main SoY processes, so it can't rely on systemd or
+# python-dotenv's default cwd-based discovery. We point at the SoY root
+# explicitly so shared secrets (TELEGRAM_BOT_TOKEN, TWILIO_*, etc.) configured
+# once for the whole install are available to the voice channel without
+# duplicating them per service.
+#
+# override=False means actual systemd Environment= entries take precedence,
+# which is the right priority — operators can still pin per-service overrides.
+try:
+    from dotenv import load_dotenv as _load_dotenv  # type: ignore
+    _SOY_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
+    if _SOY_ROOT_ENV.exists():
+        _load_dotenv(_SOY_ROOT_ENV, override=False)
+except ImportError:
+    pass  # dotenv not installed — env vars must come from systemd directly
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 

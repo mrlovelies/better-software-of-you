@@ -24,5 +24,10 @@ dateparser>=1.2.0
 # Phone number parsing and validation
 phonenumbers>=8.13.0
 
+# SMS sending for booking confirmations (TwilioBackend in messaging_backend.py).
+# Falls back to LogOnlyBackend if TWILIO_* env vars aren't set, so this
+# package is technically optional — install it before flipping on real SMS.
+twilio>=9.0.0
+
 # Optional: structured logging for production debugging
 structlog>=24.1.0

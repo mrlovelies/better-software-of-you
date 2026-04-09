@@ -37,6 +37,22 @@ def _api_get(url: str, token: str) -> dict:
         return json.loads(resp.read().decode())
 
 
+def _api_post(url: str, token: str, body: dict) -> dict:
+    """Make an authenticated POST request to a Google API."""
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode())
+
+
 def _get_user_email(token: str) -> str | None:
     """Get the authenticated user's email address."""
     try:
@@ -265,6 +281,183 @@ def sync_calendar(token: str | None = None, account_email: str | None = None) ->
     except urllib.error.URLError as e:
         print(f"Calendar sync failed: {e}", file=sys.stderr)
         return {"error": str(e), "synced": synced}
+
+
+# ---------------------------------------------------------------------------
+# Calendar write/query helpers
+# ---------------------------------------------------------------------------
+#
+# These are the lower-level building blocks used by modules that need to
+# create events, check availability, or fetch a single event by ID. They
+# are pure stdlib HTTP wrappers — they do NOT touch SoY's database. Higher
+# layers (e.g., voice-channel's calendar_backend) compose them and handle
+# the local-mirror writes.
+
+
+def list_calendars(token: str | None = None, account_email: str | None = None) -> list[dict]:
+    """List calendars on the user's calendar list.
+
+    Returns a list of calendar resource dicts as returned by Google's API:
+        [{"id": "primary", "summary": "alex@gmail.com", "primary": True,
+          "accessRole": "owner", "selected": True, ...}, ...]
+
+    Useful for freebusy queries that should honor every calendar the user
+    has on their account, not just primary. Filtered by minAccessRole=
+    freeBusyReader so we only return calendars we have at least read access
+    to (avoids freebusy errors on calendars we can't see).
+    """
+    token = token or get_valid_token(email=account_email)
+    if not token:
+        return []
+
+    try:
+        url = f"{CALENDAR_API}/users/me/calendarList?minAccessRole=freeBusyReader"
+        data = _api_get(url, token)
+        return data.get("items", [])
+    except urllib.error.URLError as e:
+        print(f"list_calendars failed: {e}", file=sys.stderr)
+        return []
+
+
+def freebusy_query(
+    token: str,
+    calendar_ids: list[str],
+    time_min: str,
+    time_max: str,
+    time_zone: str = "America/Toronto",
+) -> dict:
+    """Query free/busy information across one or more calendars.
+
+    Args:
+        token: OAuth access token
+        calendar_ids: List of calendar IDs to query (e.g. ["primary", "work@..."])
+        time_min: ISO 8601 lower bound (with timezone offset, e.g. "2026-04-14T00:00:00-04:00")
+        time_max: ISO 8601 upper bound
+        time_zone: IANA timezone string for the response
+
+    Returns:
+        Dict shaped as:
+            {"calendars": {
+                "primary": {"busy": [{"start": "...", "end": "..."}, ...]},
+                "work@...": {"busy": [...]},
+            }}
+        Or {"error": "..."} on failure.
+    """
+    if not token:
+        return {"error": "No token provided"}
+    if not calendar_ids:
+        return {"calendars": {}}
+
+    try:
+        url = f"{CALENDAR_API}/freeBusy"
+        body = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "timeZone": time_zone,
+            "items": [{"id": cid} for cid in calendar_ids],
+        }
+        return _api_post(url, token, body)
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else ""
+        print(f"freebusy_query HTTP {e.code}: {body_text}", file=sys.stderr)
+        return {"error": f"HTTP {e.code}: {body_text[:200]}"}
+    except urllib.error.URLError as e:
+        print(f"freebusy_query failed: {e}", file=sys.stderr)
+        return {"error": str(e)}
+
+
+def create_calendar_event(
+    token: str,
+    calendar_id: str,
+    event_data: dict,
+) -> dict:
+    """Create an event on a Google calendar.
+
+    Args:
+        token: OAuth access token
+        calendar_id: Calendar ID (e.g. "primary" or a specific calendar's ID)
+        event_data: Event resource per Google Calendar API v3 spec.
+            Required: 'start', 'end' (each with 'dateTime' or 'date' + 'timeZone')
+            Recommended: 'summary', 'description', 'attendees', 'reminders'
+
+    Returns:
+        The created event dict on success (includes 'id', 'htmlLink',
+        'created', 'updated', and the original fields). Returns
+        {"error": "..."} on failure.
+    """
+    if not token:
+        return {"error": "No token provided"}
+    if not calendar_id:
+        return {"error": "calendar_id is required"}
+    if not event_data.get("start") or not event_data.get("end"):
+        return {"error": "event_data must include 'start' and 'end'"}
+
+    try:
+        url = f"{CALENDAR_API}/calendars/{urllib.parse.quote(calendar_id)}/events"
+        return _api_post(url, token, event_data)
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else ""
+        print(f"create_calendar_event HTTP {e.code}: {body_text}", file=sys.stderr)
+        return {"error": f"HTTP {e.code}: {body_text[:300]}"}
+    except urllib.error.URLError as e:
+        print(f"create_calendar_event failed: {e}", file=sys.stderr)
+        return {"error": str(e)}
+
+
+def cancel_calendar_event(token: str, calendar_id: str, event_id: str) -> dict:
+    """Delete an event from a Google calendar.
+
+    Returns {"deleted": True} on success, {"error": "..."} on failure.
+    """
+    if not all([token, calendar_id, event_id]):
+        return {"error": "token, calendar_id, and event_id are required"}
+
+    try:
+        url = (
+            f"{CALENDAR_API}/calendars/{urllib.parse.quote(calendar_id)}"
+            f"/events/{urllib.parse.quote(event_id)}"
+        )
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            method="DELETE",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return {"deleted": resp.status in (200, 204)}
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 410):
+            return {"deleted": True, "note": "already gone"}
+        body_text = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else ""
+        print(f"cancel_calendar_event HTTP {e.code}: {body_text}", file=sys.stderr)
+        return {"error": f"HTTP {e.code}: {body_text[:200]}"}
+    except urllib.error.URLError as e:
+        print(f"cancel_calendar_event failed: {e}", file=sys.stderr)
+        return {"error": str(e)}
+
+
+def get_calendar_event(token: str, calendar_id: str, event_id: str) -> dict | None:
+    """Fetch a single calendar event by ID. Returns None if not found.
+
+    Used for post-call booking verification: did the event we claimed to
+    create actually land in the user's calendar?
+    """
+    if not all([token, calendar_id, event_id]):
+        return None
+
+    try:
+        url = (
+            f"{CALENDAR_API}/calendars/{urllib.parse.quote(calendar_id)}"
+            f"/events/{urllib.parse.quote(event_id)}"
+        )
+        return _api_get(url, token)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        print(f"get_calendar_event HTTP {e.code}", file=sys.stderr)
+        return None
+    except urllib.error.URLError as e:
+        print(f"get_calendar_event failed: {e}", file=sys.stderr)
+        return None
 
 
 def _decode_base64url(data: str) -> str:

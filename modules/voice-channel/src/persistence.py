@@ -509,6 +509,198 @@ def write_voice_transcript(
 
 
 # ---------------------------------------------------------------------------
+# Calendar event mirror — write Google events into local calendar_events
+# ---------------------------------------------------------------------------
+
+
+def mirror_calendar_event(
+    db_path: Path,
+    google_event_data: dict[str, Any],
+    account_email: str | None = None,
+) -> int | None:
+    """Mirror a Google Calendar event into the local calendar_events table.
+
+    Used immediately after a successful book_appointment so the rest of SoY
+    sees the new event without waiting for the next pull-sync. The column
+    layout matches shared/google_sync.py:sync_calendar so the row looks
+    identical to one inserted by the regular sync.
+
+    Args:
+        db_path: Path to the SoY database
+        google_event_data: The event resource returned by Google's
+            calendar.events.insert API (must include 'id' at minimum)
+        account_email: Email of the Google account that owns the event,
+            used to fill in the account_id FK
+
+    Returns:
+        The local calendar_events.id of the inserted/updated row, or None
+        on failure.
+    """
+    event_id = google_event_data.get("id")
+    if not event_id:
+        log.error("mirror_calendar_event: google_event_data missing 'id'")
+        return None
+
+    title = google_event_data.get("summary", "(no title)")
+    description = google_event_data.get("description", "") or None
+    location = google_event_data.get("location", "") or None
+
+    start = google_event_data.get("start", {})
+    end = google_event_data.get("end", {})
+    start_time = start.get("dateTime", start.get("date", ""))
+    end_time = end.get("dateTime", end.get("date", ""))
+    all_day = "date" in start and "dateTime" not in start
+
+    status = google_event_data.get("status", "confirmed")
+
+    attendees_raw = google_event_data.get("attendees", []) or []
+    attendees_json = (
+        json.dumps(
+            [
+                {
+                    "email": a.get("email", ""),
+                    "name": a.get("displayName", ""),
+                    "status": a.get("responseStatus", ""),
+                }
+                for a in attendees_raw
+            ]
+        )
+        if attendees_raw
+        else None
+    )
+
+    db = get_db(db_path)
+    try:
+        # Look up account_id from google_accounts (matches sync_calendar pattern).
+        # Falls back to NULL if the account isn't registered or the table
+        # doesn't exist (e.g., legacy single-account installs).
+        account_id: int | None = None
+        if account_email:
+            try:
+                acct_row = db.execute(
+                    "SELECT id FROM google_accounts WHERE email = ?",
+                    (account_email,),
+                ).fetchone()
+                if acct_row:
+                    account_id = acct_row["id"]
+            except sqlite3.OperationalError:
+                account_id = None
+
+        # Match attendees to contacts (best-effort)
+        contact_ids: list[int] = []
+        for a in attendees_raw:
+            email = a.get("email", "")
+            if not email:
+                continue
+            try:
+                row = db.execute(
+                    "SELECT id FROM contacts WHERE email = ? AND status = 'active' LIMIT 1",
+                    (email,),
+                ).fetchone()
+                if row:
+                    contact_ids.append(row["id"])
+            except sqlite3.OperationalError:
+                continue
+        contact_ids_json = json.dumps(contact_ids) if contact_ids else None
+
+        db.execute(
+            """
+            INSERT INTO calendar_events
+                (google_event_id, title, description, location, start_time, end_time,
+                 all_day, status, attendees, contact_ids, account_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(google_event_id) DO UPDATE SET
+                title=excluded.title,
+                description=excluded.description,
+                location=excluded.location,
+                start_time=excluded.start_time,
+                end_time=excluded.end_time,
+                status=excluded.status,
+                attendees=excluded.attendees,
+                contact_ids=excluded.contact_ids,
+                account_id=COALESCE(excluded.account_id, calendar_events.account_id),
+                synced_at=datetime('now')
+            """,
+            (
+                event_id,
+                title,
+                description,
+                location,
+                start_time,
+                end_time,
+                1 if all_day else 0,
+                status,
+                attendees_json,
+                contact_ids_json,
+                account_id,
+            ),
+        )
+        db.commit()
+
+        # Look up the local id (whether it was just inserted or already existed)
+        row = db.execute(
+            "SELECT id FROM calendar_events WHERE google_event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if not row:
+            return None
+        log.info(
+            "Mirrored calendar event %s -> local id %d (%s)",
+            event_id,
+            row["id"],
+            title,
+        )
+        return row["id"]
+    except sqlite3.OperationalError as e:
+        log.error("mirror_calendar_event failed: %s", e)
+        return None
+    finally:
+        db.close()
+
+
+def link_voice_call_to_event(
+    db_path: Path,
+    vapi_call_id: str,
+    calendar_event_id: int,
+) -> bool:
+    """Set voice_calls.booked_event_id so the audit trail links the call to the booking.
+
+    Returns True if a row was updated, False otherwise.
+    """
+    if not vapi_call_id or calendar_event_id is None:
+        return False
+
+    db = get_db(db_path)
+    try:
+        cursor = db.execute(
+            """
+            UPDATE voice_calls
+               SET booked_event_id = ?, updated_at = datetime('now')
+             WHERE vapi_call_id = ?
+            """,
+            (calendar_event_id, vapi_call_id),
+        )
+        db.commit()
+        if cursor.rowcount == 0:
+            log.warning(
+                "link_voice_call_to_event: no voice_calls row for %s",
+                vapi_call_id,
+            )
+            return False
+        log.info(
+            "Linked voice_call %s -> calendar_event %d",
+            vapi_call_id,
+            calendar_event_id,
+        )
+        return True
+    except sqlite3.OperationalError as e:
+        log.error("link_voice_call_to_event failed: %s", e)
+        return False
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # Contact interactions — log the call as an interaction
 # ---------------------------------------------------------------------------
 

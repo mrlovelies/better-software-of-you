@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -614,6 +614,560 @@ def _render_caller_context(ch: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Tool: check_availability
+# ---------------------------------------------------------------------------
+
+
+def _parse_natural_date(text: str, timezone: str = "America/Toronto") -> datetime | None:
+    """Parse a natural-language date like 'tomorrow' or 'next tuesday' into a datetime.
+
+    Lazy-imports dateparser (it's slow on cold import). Tries the rich path
+    first; falls back to plain dateparser without settings (which handles
+    'next tuesday' but not 'tuesday' alone consistently); finally falls back
+    to manual handling of the simplest cases.
+
+    The 'next ' / 'this ' prefix is stripped before passing to dateparser
+    because dateparser's PREFER_DATES_FROM=future setting already interprets
+    bare day names as the next occurrence — 'next tuesday' becomes redundant
+    and (in dateparser 1.4) returns None when both are combined.
+    """
+    if not text:
+        return None
+    text = text.strip().lower()
+    if not text:
+        return None
+
+    # Strip "next "/"this " prefix — dateparser with PREFER_DATES_FROM=future
+    # already returns the next occurrence of a bare day name. Combining the
+    # two confuses dateparser 1.4 and returns None.
+    if text.startswith("next "):
+        text = text[5:].strip()
+    elif text.startswith("this "):
+        text = text[5:].strip()
+
+    if not text:
+        return None
+
+    tz = ZoneInfo(timezone) if ZoneInfo else None
+    now = datetime.now(tz) if tz else datetime.now()
+
+    # Try dateparser with rich settings first
+    try:
+        import dateparser  # type: ignore
+        result = dateparser.parse(
+            text,
+            settings={
+                "PREFER_DATES_FROM": "future",
+                "TIMEZONE": timezone,
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "RELATIVE_BASE": now,
+            },
+        )
+        if result:
+            return result
+        # Second attempt: no settings (handles edge cases the rich path drops)
+        result = dateparser.parse(text)
+        if result:
+            # Make sure it's timezone-aware
+            if result.tzinfo is None and tz is not None:
+                result = result.replace(tzinfo=tz)
+            return result
+    except Exception as e:
+        log.warning("dateparser failed for %r: %s", text, e)
+
+    # Fallback for the simplest cases
+    if text == "today":
+        return now
+    if text == "tomorrow":
+        return now + timedelta(days=1)
+    return None
+
+
+def _format_slot_humanized(slot_iso: str) -> str:
+    """Render an ISO slot start as '9:00 AM'."""
+    try:
+        dt = datetime.fromisoformat(slot_iso)
+        return dt.strftime("%-I:%M %p").lstrip("0")
+    except (ValueError, AttributeError):
+        return slot_iso
+
+
+def _sample_representative_slots(slots: list, count: int = 3) -> list:
+    """Pick `count` evenly-spaced slots from a list — used to give the LLM a
+    natural-feeling sample when the full slot list is too long to recite.
+
+    With count=3 and 8 slots, returns the first, middle, and last slots.
+    With count <= 0 or fewer slots than requested, returns the input unchanged.
+    """
+    if count <= 0 or len(slots) <= count:
+        return slots
+    n = len(slots)
+    indices = sorted({int(round(i * (n - 1) / (count - 1))) for i in range(count)})
+    return [slots[i] for i in indices]
+
+
+def check_availability(
+    db_path: Path,
+    args: dict[str, Any],
+    tool_call_id: str | None = None,
+    call_meta: dict[str, Any] | None = None,
+) -> ToolResult:
+    """Find open appointment slots for a given date.
+
+    The voice agent should call this BEFORE asking the caller to commit
+    to a specific time. Returns a list of available slots formatted for
+    natural conversation.
+
+    Args (from LLM):
+        date (str, required): When the caller wants to book — accepts
+            "today", "tomorrow", a day name like "tuesday", or a specific
+            date like "2026-04-14".
+        time_preference (str, optional): One of "morning", "afternoon",
+            "evening" to narrow the slots. Omit for full-day options.
+
+    Implementation:
+        - Reads voice_config for business_hours, services_json, timezone
+        - Default duration is taken from services_json[0].duration_min,
+          falling back to 60 if services_json is missing or malformed
+          (multi-service support is a follow-up commit)
+        - Calls calendar_backend.find_free_slots() which queries freebusy
+          across ALL of Alex's connected calendars (not just primary) so
+          the bot never schedules over a meeting on a side calendar
+    """
+    config = _get_voice_config(db_path)
+    if not config:
+        return ToolResult.error(
+            "Voice channel is not configured.",
+            tool_call_id=tool_call_id,
+        )
+
+    business_hours_raw = config.get("business_hours_json")
+    if not business_hours_raw:
+        return ToolResult.error(
+            "Business hours have not been set up — can't check availability.",
+            tool_call_id=tool_call_id,
+        )
+    try:
+        business_hours = json.loads(business_hours_raw)
+    except (json.JSONDecodeError, TypeError):
+        log.error("voice_config.business_hours_json is malformed")
+        return ToolResult.error(
+            "Business hours configuration is invalid.",
+            tool_call_id=tool_call_id,
+        )
+
+    timezone = config.get("timezone") or "America/Toronto"
+    business_name = config.get("business_name") or "the business"
+
+    # Resolve the requested date
+    date_arg = args.get("date") or ""
+    if not isinstance(date_arg, str) or not date_arg.strip():
+        return ToolResult.error(
+            "I need a date to check availability for.",
+            tool_call_id=tool_call_id,
+        )
+
+    target_date = _parse_natural_date(date_arg, timezone=timezone)
+    if not target_date:
+        return ToolResult.error(
+            f"I didn't recognize '{date_arg}' as a date.",
+            tool_call_id=tool_call_id,
+        )
+
+    # Resolve the duration from voice_config.services_json (first service)
+    duration_min = 60  # default
+    services_raw = config.get("services_json")
+    if services_raw:
+        try:
+            services = json.loads(services_raw)
+            if isinstance(services, list) and services:
+                first = services[0]
+                if isinstance(first, dict) and isinstance(first.get("duration_min"), int):
+                    duration_min = first["duration_min"]
+        except (json.JSONDecodeError, TypeError):
+            log.warning("voice_config.services_json malformed — using default 60 min")
+
+    # Time preference (optional)
+    time_pref = args.get("time_preference")
+    if time_pref and not isinstance(time_pref, str):
+        time_pref = None
+
+    # Get the calendar backend and query slots
+    try:
+        from .calendar_backend import get_backend
+        backend = get_backend(db_path)
+    except Exception as e:
+        log.exception("Failed to load calendar backend")
+        return ToolResult.error(
+            f"I'm having trouble reaching the calendar right now. ({e})",
+            tool_call_id=tool_call_id,
+        )
+
+    try:
+        slots = backend.find_free_slots(
+            date=target_date,
+            duration_min=duration_min,
+            business_hours=business_hours,
+            buffer_min=0,
+            time_preference=time_pref,
+            max_slots=8,
+        )
+    except Exception as e:
+        # Distinguish infrastructure failures from generic exceptions so the
+        # LLM gets a clear "service unavailable" message instead of "no slots"
+        from .calendar_backend import CalendarBackendError
+        if isinstance(e, CalendarBackendError):
+            log.error("Calendar backend infrastructure error: %s", e)
+            return ToolResult.error(
+                "I'm having trouble reaching the calendar right now — the connection "
+                "to the calendar service is down. Let me have Alex follow up with you "
+                "to confirm a time.",
+                tool_call_id=tool_call_id,
+            )
+        log.exception("find_free_slots raised")
+        return ToolResult.error(
+            f"I had trouble checking the calendar. ({e})",
+            tool_call_id=tool_call_id,
+        )
+
+    # Render the response
+    target_humanized = target_date.strftime("%A, %B %-d").replace(" 0", " ")
+    target_iso_date = target_date.date().isoformat()
+
+    if not slots:
+        # Could be: closed that day, fully booked, or outside business hours
+        day_keys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        day_key = day_keys[target_date.weekday()]
+        if business_hours.get(day_key) is None:
+            message = f"{business_name} is closed on {target_humanized}. Want me to check a different day?"
+        else:
+            message = (
+                f"I don't see any open {duration_min}-minute slots on {target_humanized}. "
+                "Want me to check a different day?"
+            )
+        return ToolResult.success(
+            message=message,
+            data={
+                "requested_date": target_iso_date,
+                "requested_date_humanized": target_humanized,
+                "duration_min": duration_min,
+                "slots": [],
+                "time_preference": time_pref,
+            },
+            tool_call_id=tool_call_id,
+        )
+
+    # Choose presentation density based on how full the day is.
+    # Reciting 8 slots back to back feels robotic — when the day is wide
+    # open, invite the caller to propose a time and let the LLM check it
+    # against data.slots. When it's moderate, give a representative
+    # sampling. Only when it's tight do we list every option.
+    slot_count = len(slots)
+    presentation: str
+
+    def _join(strs: list[str]) -> str:
+        if len(strs) == 1:
+            return strs[0]
+        if len(strs) == 2:
+            return f"{strs[0]} or {strs[1]}"
+        return ", ".join(strs[:-1]) + f", or {strs[-1]}"
+
+    if slot_count >= 7:
+        presentation = "wide_open"
+        message = (
+            f"Looking at {target_humanized}, the day is pretty open. "
+            "Do you have a specific time in mind?"
+        )
+    elif slot_count >= 4:
+        presentation = "sampled"
+        sampled = _sample_representative_slots(slots, 3)
+        sampled_strs = [_format_slot_humanized(s.start_iso) for s in sampled]
+        message = (
+            f"On {target_humanized}, I have a few openings — "
+            f"{_join(sampled_strs)}, or another time if you have a preference."
+        )
+    else:
+        presentation = "list"
+        slot_strs = [_format_slot_humanized(s.start_iso) for s in slots]
+        message = f"On {target_humanized}, I have {_join(slot_strs)}. Which works?"
+
+    return ToolResult.success(
+        message=message,
+        data={
+            "requested_date": target_iso_date,
+            "requested_date_humanized": target_humanized,
+            "duration_min": duration_min,
+            "time_preference": time_pref,
+            "presentation": presentation,
+            "total_open_slots": slot_count,
+            "slots": [
+                {
+                    "start_iso": s.start_iso,
+                    "end_iso": s.end_iso,
+                    "humanized": _format_slot_humanized(s.start_iso),
+                    "duration_min": s.duration_min,
+                }
+                for s in slots
+            ],
+        },
+        tool_call_id=tool_call_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool: book_appointment
+# ---------------------------------------------------------------------------
+
+
+def book_appointment(
+    db_path: Path,
+    args: dict[str, Any],
+    tool_call_id: str | None = None,
+    call_meta: dict[str, Any] | None = None,
+) -> ToolResult:
+    """Book an appointment on the configured calendar.
+
+    SAFETY INVARIANT: This is the load-bearing tool for the no-hallucinated-
+    bookings rail. The voice agent's system prompt is told NEVER to confirm
+    a booking unless this tool returns status='success'. If create_event
+    fails, we return ToolResult.error and the agent must say "I'm having
+    trouble reaching the calendar, let me have Alex call you back" rather
+    than fabricating a confirmation.
+
+    Sequence:
+        1. Validate inputs (date, time, caller_name required)
+        2. calendar_backend.create_event() — REAL Google Calendar event lands
+        3. mirror_calendar_event() — local calendar_events row written
+        4. link_voice_call_to_event() — voice_calls.booked_event_id wired
+        5. messaging_backend.send_sms() — confirmation text to caller
+        6. notify_owner() — telegram ping to Alex
+        7. Return success
+
+    Each downstream step's failure (3-6) is logged separately to voice_events
+    so we can tell exactly where it broke. Steps 3-6 do not roll back the
+    Google event — the booking is real even if SMS or telegram fail.
+
+    Args (from LLM):
+        date (str, required): YYYY-MM-DD
+        time (str, required): HH:MM in 24-hour format
+        caller_name (str, required)
+        caller_phone (str, optional): Defaults to call_meta.from_number
+        notes (str, optional)
+    """
+    # --- Input validation ---
+    date_str = args.get("date") or ""
+    time_str = args.get("time") or ""
+    caller_name = (args.get("caller_name") or "").strip()
+    caller_phone = (args.get("caller_phone") or (call_meta or {}).get("from_number") or "").strip()
+    notes = (args.get("notes") or "").strip()
+
+    if not date_str or not time_str or not caller_name:
+        return ToolResult.error(
+            "I need the date, time, and caller name to book.",
+            tool_call_id=tool_call_id,
+        )
+
+    # --- Load voice_config ---
+    config = _get_voice_config(db_path)
+    if not config:
+        return ToolResult.error(
+            "Voice channel is not configured.",
+            tool_call_id=tool_call_id,
+        )
+    timezone = config.get("timezone") or "America/Toronto"
+    business_name = config.get("business_name") or "the business"
+    owner_name = config.get("owner_name") or "the owner"
+
+    # --- Resolve duration ---
+    duration_min = 60
+    services_raw = config.get("services_json")
+    if services_raw:
+        try:
+            services = json.loads(services_raw)
+            if isinstance(services, list) and services:
+                first = services[0]
+                if isinstance(first, dict) and isinstance(first.get("duration_min"), int):
+                    duration_min = first["duration_min"]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # --- Build the slot ---
+    try:
+        date_part = datetime.strptime(date_str, "%Y-%m-%d").date()
+        hh, mm = (int(x) for x in time_str.split(":"))
+        if ZoneInfo is not None:
+            tz = ZoneInfo(timezone)
+            start_dt = datetime(date_part.year, date_part.month, date_part.day, hh, mm, tzinfo=tz)
+        else:
+            start_dt = datetime(date_part.year, date_part.month, date_part.day, hh, mm)
+    except (ValueError, TypeError) as e:
+        return ToolResult.error(
+            f"I couldn't parse the date or time: {e}",
+            tool_call_id=tool_call_id,
+        )
+    end_dt = start_dt + timedelta(minutes=duration_min)
+
+    # --- Get the calendar backend ---
+    try:
+        from .calendar_backend import Slot, get_backend
+        backend = get_backend(db_path)
+    except Exception as e:
+        log.exception("Failed to load calendar backend for booking")
+        return ToolResult.error(
+            f"I'm having trouble reaching the calendar right now. ({e})",
+            tool_call_id=tool_call_id,
+        )
+
+    slot = Slot(
+        start_iso=start_dt.isoformat(),
+        end_iso=end_dt.isoformat(),
+        duration_min=duration_min,
+        calendar_id=getattr(backend, "calendar_id", "primary"),
+    )
+
+    # --- Build event body ---
+    event_summary = f"{caller_name} — voice booking"
+    description_parts = [
+        f"Booked via voice channel.",
+        f"Caller: {caller_name}",
+    ]
+    if caller_phone:
+        description_parts.append(f"Phone: {caller_phone}")
+    if notes:
+        description_parts.append(f"Notes: {notes}")
+    description = "\n".join(description_parts)
+
+    # --- Step 2: Create the Google Calendar event (REAL booking) ---
+    booking = backend.create_event(
+        slot=slot,
+        summary=event_summary,
+        description=description,
+        attendees=None,  # Not asking for caller email in v1 — SMS is the lowest barrier
+    )
+
+    if booking.status != "success":
+        # SAFETY INVARIANT: hard failure path. The agent MUST NOT confirm.
+        return ToolResult.error(
+            f"I couldn't reach the calendar to book that. ({booking.error or 'unknown error'}). "
+            "Let me have someone call you back.",
+            tool_call_id=tool_call_id,
+        )
+
+    log.info("Booking created: event_id=%s for %s at %s", booking.event_id, caller_name, slot.start_iso)
+
+    # --- Step 3: Mirror to local calendar_events ---
+    local_event_id: int | None = None
+    try:
+        from .persistence import (
+            link_voice_call_to_event,
+            mirror_calendar_event,
+        )
+        # The raw Google event response is preserved in booking.raw
+        # We need account_email — pull from the backend if available
+        account_email = getattr(backend, "account_email", None)
+        local_event_id = mirror_calendar_event(
+            db_path,
+            google_event_data=booking.raw,
+            account_email=account_email,
+        )
+    except Exception:
+        log.exception("Failed to mirror calendar event locally — booking still real in Google")
+
+    # --- Step 4: Link voice_call to the booked event ---
+    vapi_call_id = (call_meta or {}).get("vapi_call_id")
+    if vapi_call_id and local_event_id:
+        try:
+            link_voice_call_to_event(db_path, vapi_call_id, local_event_id)
+        except Exception:
+            log.exception("Failed to link voice_call to calendar_event")
+
+    # --- Step 5: Send SMS confirmation to caller ---
+    sms_status = "skipped"
+    if caller_phone:
+        try:
+            from .messaging_backend import get_messaging_backend
+            messaging = get_messaging_backend()
+            slot_humanized = _format_slot_humanized(slot.start_iso)
+            sms_body = (
+                f"Hi {caller_name.split()[0]}, you're booked with {business_name} "
+                f"on {start_dt.strftime('%A, %B %-d').replace(' 0', ' ')} at {slot_humanized}. "
+                f"Reply to this text if you need to change anything. — {owner_name}"
+            )
+            send_result = messaging.send_sms(caller_phone, sms_body)
+            sms_status = send_result.status
+            if send_result.status == "logged":
+                log.info("SMS confirmation logged (LogOnly fallback) — Twilio not yet configured")
+            elif send_result.status != "success":
+                log.warning("SMS confirmation failed: %s", send_result.error or "unknown")
+        except Exception:
+            log.exception("Messaging backend raised — SMS not sent (booking still real)")
+            sms_status = "error"
+
+    # --- Step 6: Notify owner via Telegram ---
+    try:
+        from .notify import notify_owner
+        nice_date = start_dt.strftime("%A, %B %-d").replace(" 0", " ")
+        nice_time = _format_slot_humanized(slot.start_iso)
+        body_lines = [
+            f"{caller_name} booked a {duration_min}-min slot",
+            f"📅 {nice_date} at {nice_time}",
+            f"📞 {caller_phone or '(no phone)'}",
+        ]
+        if notes:
+            body_lines.append(f"📝 {notes}")
+        if sms_status == "logged":
+            body_lines.append("⚠️ SMS confirmation NOT sent (Twilio env vars unset)")
+        if booking.event_url:
+            body_lines.append("")
+            body_lines.append(f"View: {booking.event_url}")
+        notify_owner(
+            db_path,
+            subject="📅 New voice booking",
+            body="\n".join(body_lines),
+            channels=["telegram"],
+        )
+    except Exception:
+        log.exception("notify_owner raised — telegram skipped")
+
+    # --- Step 7: Success response to LLM ---
+    confirmation_phrase = (
+        f"You're booked, {caller_name.split()[0]}. "
+        f"{start_dt.strftime('%A, %B %-d').replace(' 0', ' ')} at {_format_slot_humanized(slot.start_iso)}."
+    )
+    # SMS confirmation language must match what actually happened — never
+    # claim "I just texted you" if no SMS actually went out (LogOnlyBackend
+    # returns 'logged' specifically so we can differentiate). Telling the
+    # caller a verifiable falsehood is the same class of safety bug as
+    # confirming an unverified booking.
+    if sms_status == "success":
+        confirmation_phrase += " I just texted you a confirmation."
+    elif sms_status == "logged":
+        # SMS pipeline isn't wired (env vars unset) — booking is real,
+        # just be honest that the text isn't actually going out yet
+        confirmation_phrase += " Alex will text you the details shortly."
+    elif caller_phone and sms_status != "skipped":
+        # SMS failed but the booking is real — don't lie to the caller
+        confirmation_phrase += " I'll have Alex follow up with the details."
+
+    return ToolResult.success(
+        message=confirmation_phrase,
+        data={
+            "event_id": booking.event_id,
+            "event_url": booking.event_url,
+            "calendar_id": booking.calendar_id,
+            "start_iso": slot.start_iso,
+            "end_iso": slot.end_iso,
+            "duration_min": duration_min,
+            "caller_name": caller_name,
+            "caller_phone": caller_phone or None,
+            "sms_status": sms_status,
+            "local_event_id": local_event_id,
+        },
+        tool_call_id=tool_call_id,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tool registry — used by the dispatcher in server.py
 # ---------------------------------------------------------------------------
 
@@ -622,10 +1176,10 @@ ToolFunction = Callable[[Path, dict[str, Any], str | None, dict[str, Any] | None
 TOOL_REGISTRY: dict[str, ToolFunction] = {
     "get_business_hours": get_business_hours,
     "lookup_caller": lookup_caller,
-    # Week 1 day 3+ tools land here:
+    "check_availability": check_availability,
+    "book_appointment": book_appointment,
+    # Future tools (Week 2+):
     # "list_services": list_services,
-    # "check_availability": check_availability,
-    # "book_appointment": book_appointment,
     # "send_confirmation_sms": send_confirmation_sms,
     # "transfer_to_human": transfer_to_human,
     # "log_call_outcome": log_call_outcome,

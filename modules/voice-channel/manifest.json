@@ -1,0 +1,88 @@
+{
+  "name": "voice-channel",
+  "display_name": "Voice Channel",
+  "version": "0.1.0",
+  "description": "Voice agent integration for SoY. Answers phone calls via Vapi, books appointments against SoY's calendar, captures transcripts into the data graph. Per-install tenancy — one SoY install serves one business.",
+  "migration": "058_voice_channel.sql",
+  "tables": [
+    "voice_calls",
+    "voice_config",
+    "voice_events"
+  ],
+  "entities": [],
+  "commands": [],
+  "standalone_features": [
+    "Inbound voice agent answering via Vapi",
+    "Tool calls into SoY contacts, calendar, and services data",
+    "Automatic contact creation from first-time callers",
+    "Post-call booking verification with Telegram alerts on failure",
+    "Hard call duration, rate limit, and daily cost cap safety rails",
+    "Per-install tenancy — one SoY = one business"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "crm",
+      "features": [
+        "Caller lookup and relationship context injection",
+        "New callers auto-create contacts with lead source tracking"
+      ],
+      "description": "When a caller phone number matches an existing contact, the voice agent greets them with relationship context (last conversation, open projects, trajectory)."
+    },
+    {
+      "requires_module": "project-tracker",
+      "features": [
+        "Bookings link to active projects by client contact"
+      ],
+      "description": "Appointments booked by voice automatically associate with active projects for the calling client."
+    },
+    {
+      "requires_module": "gmail",
+      "features": [
+        "Cross-channel entity reconciliation"
+      ],
+      "description": "Caller phone number matching uses contacts discovered from Gmail history."
+    },
+    {
+      "requires_module": "conversation-intelligence",
+      "features": [
+        "Automatic commitment extraction from voice transcripts",
+        "Talk ratio and coaching analysis on voice calls",
+        "Voice calls flow into the unified transcript timeline"
+      ],
+      "description": "Post-call transcripts are analyzed by conversation-intelligence for commitments, talk patterns, and coaching notes — same pipeline as meeting transcripts."
+    }
+  ],
+  "dependencies": {
+    "platform": {
+      "python": ">=3.11"
+    },
+    "python_packages": [
+      "fastapi>=0.115",
+      "uvicorn[standard]>=0.30",
+      "httpx>=0.27",
+      "pydantic>=2.8"
+    ],
+    "external_services": [
+      {
+        "name": "vapi",
+        "required": true,
+        "description": "Hosted voice agent platform. Handles Twilio transport, STT, LLM, TTS, turn-taking, and interruption. Requires account + API key + configured agent.",
+        "signup": "https://vapi.ai"
+      },
+      {
+        "name": "twilio",
+        "required": true,
+        "description": "Phone number provisioning. Vapi can provision numbers for you or bring-your-own.",
+        "signup": "https://twilio.com"
+      }
+    ]
+  },
+  "runtime": {
+    "host": "razer",
+    "type": "fastapi-webhook",
+    "port": null,
+    "systemd_service": "soy-voice-channel",
+    "public_access": "tailscale-funnel",
+    "log_path": "~/.local/share/software-of-you/voice-channel.log"
+  }
+}

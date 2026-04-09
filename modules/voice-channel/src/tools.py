@@ -1,10 +1,11 @@
 """Tool implementations for the voice channel.
 
-Each tool is a Python function that takes the SoY database path and arguments
-from the LLM, queries SoY's data graph, and returns a ToolResult.
+Each tool is a Python function that takes the SoY database path, arguments
+from the LLM, a tool call ID (for Vapi correlation), and the current call's
+metadata (caller phone, callee phone, vapi_call_id), and returns a ToolResult.
 
 The dispatcher in server.py routes tool invocations from Vapi to these
-functions based on the tool name.
+functions based on the tool name and threads call metadata through.
 
 SAFETY INVARIANT (per CLAUDE.md):
 Every tool must return a structured ToolResult with an explicit `status`
@@ -12,9 +13,15 @@ field. The assistant's system prompt is told to NEVER confirm a booking
 unless the result.status == 'success'. This is the no-hallucinated-bookings
 safety rail and it must hold for every tool that mutates state.
 
-v1 implements one tool: get_business_hours.
-Week 1 day 3+ adds: list_services, lookup_caller, check_availability,
-book_appointment, send_confirmation_sms, transfer_to_human.
+Implemented tools:
+- get_business_hours: read voice_config.business_hours_json (with temporal
+  context so the LLM never has to ask what day it is)
+- lookup_caller: cross-reference caller phone against v_contact_health
+  and return relationship context for personalized greeting
+
+Upcoming:
+- list_services, check_availability, book_appointment,
+  send_confirmation_sms, transfer_to_human, log_call_outcome
 """
 
 from __future__ import annotations
@@ -31,9 +38,49 @@ try:
 except ImportError:
     ZoneInfo = None  # type: ignore
 
+try:
+    import phonenumbers  # type: ignore
+except ImportError:
+    phonenumbers = None  # type: ignore
+
 from .vapi_messages import ToolInvocation, ToolResult
 
 log = logging.getLogger("voice-channel.tools")
+
+
+def _normalize_phone(raw: str | None, default_region: str = "CA") -> str | None:
+    """Normalize a phone number to E.164 format.
+
+    Uses phonenumbers library if available (handles all formats reliably:
+    "+14169091519", "416.909.1519", "(416) 909-1519", "1-416-909-1519", etc).
+    Falls back to basic digit extraction if phonenumbers is not installed.
+
+    Returns None if the input can't be parsed as a valid phone number.
+    """
+    if not raw:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+
+    if phonenumbers is not None:
+        try:
+            parsed = phonenumbers.parse(raw, default_region)
+            if phonenumbers.is_valid_number(parsed):
+                return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        except phonenumbers.NumberParseException:
+            pass
+        # Fallthrough to basic normalization if parse fails
+
+    # Basic fallback: strip everything except digits, handle leading "1" for NA
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    if len(digits) > 0:
+        return f"+{digits}"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +155,12 @@ DAY_NAMES = {
 DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
-def get_business_hours(db_path: Path, args: dict[str, Any], tool_call_id: str | None = None) -> ToolResult:
+def get_business_hours(
+    db_path: Path,
+    args: dict[str, Any],
+    tool_call_id: str | None = None,
+    call_meta: dict[str, Any] | None = None,
+) -> ToolResult:
     """Return the business hours configured in voice_config.
 
     Args (from LLM, all optional):
@@ -312,16 +364,278 @@ def _humanize_time(t: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tool: lookup_caller
+# ---------------------------------------------------------------------------
+
+
+def lookup_caller(
+    db_path: Path,
+    args: dict[str, Any],
+    tool_call_id: str | None = None,
+    call_meta: dict[str, Any] | None = None,
+) -> ToolResult:
+    """Identify the caller and return relationship context for personalized greeting.
+
+    The LLM is expected to call this at the very start of every call, typically
+    without any arguments — the tool pulls the caller's phone from the current
+    call metadata. If the LLM does pass a phone argument (e.g., the user verbally
+    gave it), we prefer that.
+
+    Returns:
+        - Known contact: name, company, role, relationship depth, trajectory,
+          days since last contact, active projects count, open commitments
+          counts, recent email count, next scheduled meeting
+        - Unknown caller: status=success with `known: false` — the LLM should
+          use a generic greeting and maybe offer to add them as a contact
+
+    This tool is the centerpiece of SoY's voice channel differentiation.
+    Generic voice agents can't do this because they don't have a unified
+    personal data graph underneath.
+    """
+    # Prefer the phone the LLM passed, fall back to the current call's from_number
+    raw_phone = args.get("phone") or (call_meta or {}).get("from_number") or ""
+    phone = (raw_phone or "").strip()
+
+    if not phone:
+        return ToolResult.error(
+            "No caller phone number available to look up.",
+            tool_call_id=tool_call_id,
+        )
+
+    # Normalize the query phone to E.164 so we can compare against any format
+    normalized_query = _normalize_phone(phone) or phone
+
+    db = sqlite3.connect(db_path)
+    db.row_factory = sqlite3.Row
+    try:
+        # Try exact match first (fast path for already-E.164 stored numbers)
+        contact_row = db.execute(
+            "SELECT id FROM contacts WHERE phone = ? AND status = 'active' LIMIT 1",
+            (normalized_query,),
+        ).fetchone()
+
+        if not contact_row:
+            # Slow path: normalize every stored phone in Python and compare to the
+            # normalized query. This handles dots, dashes, parens, spaces, missing
+            # country codes, and any other format variance.
+            #
+            # For the initial SoY deployment this is O(N) over active contacts,
+            # which is fine up to a few thousand. If/when the CRM grows, we add
+            # an indexed `phone_e164` column and maintain it on contact write.
+            candidates = db.execute(
+                "SELECT id, phone FROM contacts WHERE phone IS NOT NULL AND phone != '' AND status = 'active'"
+            ).fetchall()
+            for cand in candidates:
+                normalized_stored = _normalize_phone(cand["phone"])
+                if normalized_stored and normalized_stored == normalized_query:
+                    contact_row = {"id": cand["id"]}
+                    break
+
+        if not contact_row:
+            # Unknown caller — this is useful information for the LLM
+            return ToolResult.success(
+                message=f"The caller at {phone} is not in the contact database. Use a generic greeting and offer to add them as a contact if they'd like.",
+                data={
+                    "known": False,
+                    "phone": phone,
+                },
+                tool_call_id=tool_call_id,
+            )
+
+        contact_id = contact_row["id"]
+
+        # Auto-created placeholder contacts (from earlier calls) should be
+        # treated as "known phone, not yet named" — not a real relationship
+        contact_full = db.execute(
+            "SELECT name, notes FROM contacts WHERE id = ?",
+            (contact_id,),
+        ).fetchone()
+
+        is_placeholder = False
+        if contact_full:
+            notes = (contact_full["notes"] or "").lower()
+            name = (contact_full["name"] or "").lower()
+            if "auto-created from inbound voice call" in notes or name.startswith("caller +"):
+                is_placeholder = True
+
+        if is_placeholder:
+            return ToolResult.success(
+                message=(
+                    f"The caller at {phone} has called before but hasn't introduced themselves yet. "
+                    "Ask for their name naturally as part of the conversation."
+                ),
+                data={
+                    "known": True,
+                    "placeholder": True,
+                    "contact_id": contact_id,
+                    "phone": phone,
+                },
+                tool_call_id=tool_call_id,
+            )
+
+        # Full relationship context from the computed view
+        ch = db.execute(
+            "SELECT * FROM v_contact_health WHERE id = ?",
+            (contact_id,),
+        ).fetchone()
+
+        if not ch:
+            return ToolResult.success(
+                message=f"Found contact {contact_full['name']} but no relationship data available.",
+                data={
+                    "known": True,
+                    "contact_id": contact_id,
+                    "name": contact_full["name"],
+                    "phone": phone,
+                },
+                tool_call_id=tool_call_id,
+            )
+
+        ch_dict = dict(ch)
+
+        # Render a natural context sentence the LLM can use in its greeting
+        message_parts = _render_caller_context(ch_dict)
+        message = " ".join(message_parts)
+
+        return ToolResult.success(
+            message=message,
+            data={
+                "known": True,
+                "placeholder": False,
+                "contact_id": ch_dict["id"],
+                "name": ch_dict["name"],
+                "company": ch_dict.get("company"),
+                "role": ch_dict.get("role"),
+                "email": ch_dict.get("email"),
+                "phone": phone,
+                "days_silent": ch_dict.get("days_silent"),
+                "emails_30d": ch_dict.get("emails_30d"),
+                "interactions_30d": ch_dict.get("interactions_30d"),
+                "transcripts_30d": ch_dict.get("transcripts_30d"),
+                "active_projects": ch_dict.get("active_projects"),
+                "your_open_commitments": ch_dict.get("your_open_commitments"),
+                "their_open_commitments": ch_dict.get("their_open_commitments"),
+                "overdue_commitments": ch_dict.get("overdue_commitments"),
+                "pending_follow_ups": ch_dict.get("pending_follow_ups"),
+                "next_meeting": ch_dict.get("next_meeting"),
+                "relationship_depth": ch_dict.get("relationship_depth"),
+                "trajectory": ch_dict.get("trajectory"),
+                "relationship_notes": ch_dict.get("relationship_notes"),
+            },
+            tool_call_id=tool_call_id,
+        )
+    finally:
+        db.close()
+
+
+def _render_caller_context(ch: dict[str, Any]) -> list[str]:
+    """Render v_contact_health data as natural sentences for the LLM.
+
+    Returns a list of sentence fragments the LLM can use in its greeting.
+    Ordered from most important (identity) to supporting context.
+    """
+    parts: list[str] = []
+
+    # Identity
+    name = ch.get("name") or "the caller"
+    company = ch.get("company")
+    role = ch.get("role")
+    if company and role:
+        parts.append(f"This call is from {name}, {role} at {company}.")
+    elif company:
+        parts.append(f"This call is from {name} at {company}.")
+    elif role:
+        parts.append(f"This call is from {name}, {role}.")
+    else:
+        parts.append(f"This call is from {name}.")
+
+    # Recency / trajectory
+    days_silent = ch.get("days_silent")
+    trajectory = ch.get("trajectory")
+    if days_silent is not None:
+        if days_silent == 0:
+            recency = "You were in contact with them earlier today."
+        elif days_silent == 1:
+            recency = "You were in contact yesterday."
+        elif days_silent <= 7:
+            recency = f"You last heard from them {days_silent} days ago."
+        elif days_silent <= 30:
+            recency = f"It's been about {days_silent} days since you last talked."
+        else:
+            months = days_silent // 30
+            recency = f"It's been roughly {months} month{'s' if months != 1 else ''} since you last talked."
+        if trajectory and trajectory not in ("—", "", None):
+            recency = f"{recency} The relationship trajectory is {trajectory}."
+        parts.append(recency)
+
+    # Active collaboration
+    active_projects = ch.get("active_projects") or 0
+    if active_projects > 0:
+        parts.append(
+            f"You have {active_projects} active project"
+            f"{'s' if active_projects != 1 else ''} with them."
+        )
+
+    # Recent activity
+    emails_30d = ch.get("emails_30d") or 0
+    transcripts_30d = ch.get("transcripts_30d") or 0
+    if emails_30d > 0 or transcripts_30d > 0:
+        bits = []
+        if emails_30d > 0:
+            bits.append(f"{emails_30d} email{'s' if emails_30d != 1 else ''}")
+        if transcripts_30d > 0:
+            bits.append(f"{transcripts_30d} call{'s' if transcripts_30d != 1 else ''}")
+        parts.append(f"In the last 30 days you've exchanged {' and '.join(bits)}.")
+
+    # Commitments — these are important because they're often why people call
+    your_c = ch.get("your_open_commitments") or 0
+    their_c = ch.get("their_open_commitments") or 0
+    overdue = ch.get("overdue_commitments") or 0
+    if your_c > 0:
+        msg = f"You owe them {your_c} open commitment{'s' if your_c != 1 else ''}"
+        if overdue > 0:
+            msg += f", and {overdue} of your commitments with them are overdue"
+        parts.append(msg + ".")
+    if their_c > 0:
+        parts.append(
+            f"They owe you {their_c} open commitment{'s' if their_c != 1 else ''}."
+        )
+
+    # Pending follow-ups
+    pending_followups = ch.get("pending_follow_ups") or 0
+    if pending_followups > 0:
+        parts.append(
+            f"There are {pending_followups} pending follow-up{'s' if pending_followups != 1 else ''} with them."
+        )
+
+    # Next meeting
+    next_meeting = ch.get("next_meeting")
+    if next_meeting:
+        parts.append(f"You have a scheduled meeting coming up on {next_meeting}.")
+
+    # Relationship notes — free text the user has written about this contact
+    notes = ch.get("relationship_notes")
+    if notes and notes.strip():
+        # Truncate to keep prompt efficient
+        notes_short = notes.strip()
+        if len(notes_short) > 200:
+            notes_short = notes_short[:200] + "..."
+        parts.append(f"Notes on this contact: {notes_short}")
+
+    return parts
+
+
+# ---------------------------------------------------------------------------
 # Tool registry — used by the dispatcher in server.py
 # ---------------------------------------------------------------------------
 
-ToolFunction = Callable[[Path, dict[str, Any], str | None], ToolResult]
+ToolFunction = Callable[[Path, dict[str, Any], str | None, dict[str, Any] | None], ToolResult]
 
 TOOL_REGISTRY: dict[str, ToolFunction] = {
     "get_business_hours": get_business_hours,
+    "lookup_caller": lookup_caller,
     # Week 1 day 3+ tools land here:
     # "list_services": list_services,
-    # "lookup_caller": lookup_caller,
     # "check_availability": check_availability,
     # "book_appointment": book_appointment,
     # "send_confirmation_sms": send_confirmation_sms,
@@ -330,8 +644,20 @@ TOOL_REGISTRY: dict[str, ToolFunction] = {
 }
 
 
-def dispatch_tool(db_path: Path, invocation: ToolInvocation) -> ToolResult:
-    """Route a tool invocation to its implementation, with error handling."""
+def dispatch_tool(
+    db_path: Path,
+    invocation: ToolInvocation,
+    call_meta: dict[str, Any] | None = None,
+) -> ToolResult:
+    """Route a tool invocation to its implementation, with error handling.
+
+    Args:
+        db_path: Path to the SoY database
+        invocation: Parsed tool invocation from the Vapi webhook
+        call_meta: Current call metadata (from_number, to_number, vapi_call_id,
+                   assistant_id) so tools can access caller context without
+                   requiring the LLM to pass it as an argument every time
+    """
     fn = TOOL_REGISTRY.get(invocation.name)
     if fn is None:
         log.warning("Unknown tool requested: %s", invocation.name)
@@ -341,7 +667,7 @@ def dispatch_tool(db_path: Path, invocation: ToolInvocation) -> ToolResult:
         )
 
     try:
-        result = fn(db_path, invocation.arguments, invocation.tool_call_id)
+        result = fn(db_path, invocation.arguments, invocation.tool_call_id, call_meta)
         log.info(
             "Tool %s -> status=%s msg=%s",
             invocation.name,

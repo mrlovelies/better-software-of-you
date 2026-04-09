@@ -429,24 +429,28 @@ def log_contact_interaction(
         insert_cols = ["contact_id"]
         insert_vals: list[Any] = [contact_id]
 
+        # Required fields per schema: contact_id, type, direction, occurred_at
+        # (type CHECK: email|call|meeting|message|other)
+        # (direction CHECK: inbound|outbound)
         if "type" in cols:
             insert_cols.append("type")
-            insert_vals.append("voice_call")
-        if "subject" in cols:
-            insert_cols.append("subject")
-            insert_vals.append(f"Inbound voice call ({outcome})")
-        if "notes" in cols:
-            insert_cols.append("notes")
-            insert_vals.append(summary or f"Voice channel call {vapi_call_id}")
-        if "occurred_at" in cols:
-            insert_cols.append("occurred_at")
-            insert_vals.append(datetime.utcnow().isoformat() + "Z")
+            insert_vals.append("call")
         if "direction" in cols:
             insert_cols.append("direction")
             insert_vals.append("inbound")
-        if "duration_minutes" in cols and duration_s:
-            insert_cols.append("duration_minutes")
-            insert_vals.append(max(1, duration_s // 60))
+        if "subject" in cols:
+            insert_cols.append("subject")
+            duration_str = f" ({duration_s}s)" if duration_s else ""
+            insert_vals.append(f"Voice call — {outcome}{duration_str}")
+        if "summary" in cols:
+            insert_cols.append("summary")
+            summary_text = summary or f"Voice channel call {vapi_call_id}"
+            if duration_s:
+                summary_text += f" (duration: {duration_s}s)"
+            insert_vals.append(summary_text)
+        if "occurred_at" in cols:
+            insert_cols.append("occurred_at")
+            insert_vals.append(datetime.utcnow().isoformat() + "Z")
         if "created_at" in cols:
             insert_cols.append("created_at")
             insert_vals.append(datetime.utcnow().isoformat() + "Z")
@@ -458,7 +462,7 @@ def log_contact_interaction(
         )
         db.commit()
         log.info("Logged contact_interaction for contact %d (call %s)", contact_id, vapi_call_id)
-    except sqlite3.OperationalError as e:
+    except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
         log.warning("Could not log contact_interaction: %s", e)
     finally:
         db.close()

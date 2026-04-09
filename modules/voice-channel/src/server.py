@@ -41,7 +41,7 @@ from .vapi_messages import (
     get_call_status,
     get_end_of_call_report,
 )
-from .tools import dispatch_tool
+from .tools import dispatch_tool, lookup_caller
 from .persistence import (
     find_or_create_contact_by_phone,
     log_contact_interaction,
@@ -144,6 +144,9 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_ASSISTANT_ID = "2e6a3d72-baa9-46ff-8009-fc400cffb09f"
+
+
 async def handle_vapi_message(msg: VapiMessage) -> dict[str, Any]:
     """Dispatch a parsed Vapi message based on its type.
 
@@ -163,6 +166,16 @@ async def handle_vapi_message(msg: VapiMessage) -> dict[str, Any]:
         msg.to_number,
     )
 
+    # --- Pre-call assistant request (HAPPENS DURING PHONE RING) ---
+    # Vapi hits this BEFORE connecting the caller. We run lookup_caller
+    # synchronously, build a personalized first message, and return
+    # assistantId + override. Latency hides behind the phone ring pattern
+    # — caller hears normal ringing while we do the lookup, then hears
+    # a personalized greeting on pickup. Zero perceived dead air.
+
+    if msg_type in ("assistant-request", "assistant_request"):
+        return _handle_assistant_request(msg)
+
     # --- Tool invocations ---
 
     if msg_type in ("tool-calls", "tool_calls", "function-call"):
@@ -173,6 +186,15 @@ async def handle_vapi_message(msg: VapiMessage) -> dict[str, Any]:
 
         # Persist the tool call event
         call_row_id = _ensure_call_row(msg)
+
+        # Build call metadata so tools can access caller context without
+        # requiring the LLM to pass it as an argument every time
+        call_meta = {
+            "from_number": msg.from_number,
+            "to_number": msg.to_number,
+            "vapi_call_id": vapi_call_id,
+            "assistant_id": msg.assistant_id,
+        }
 
         results: list[dict[str, Any]] = []
         for inv in invocations:
@@ -187,7 +209,7 @@ async def handle_vapi_message(msg: VapiMessage) -> dict[str, Any]:
             )
 
             # Dispatch to the tool implementation
-            result = dispatch_tool(DB_PATH, inv)
+            result = dispatch_tool(DB_PATH, inv, call_meta)
 
             # Log the result
             log_voice_event(
@@ -270,6 +292,124 @@ async def handle_vapi_message(msg: VapiMessage) -> dict[str, Any]:
 
     log.info("Unhandled Vapi message type: %s", msg_type)
     return {"acknowledged": True, "handled": False, "type": msg_type}
+
+
+def _handle_assistant_request(msg: VapiMessage) -> dict[str, Any]:
+    """Handle Vapi's pre-call assistant-request webhook.
+
+    This is the UX upgrade: Vapi hits us BEFORE connecting the caller,
+    passing the caller's phone number. We synchronously look up the
+    caller in SoY's data graph, build a personalized first message,
+    and return an assistant override. Vapi then answers the call with
+    a greeting that already knows who the caller is — no dead air
+    after pickup.
+
+    Vapi expects a response shape like:
+        {
+          "assistantId": "<uuid>",
+          "assistantOverrides": {
+            "firstMessage": "Hi James, thanks for calling..."
+          }
+        }
+
+    OR (for tool and general server message routes, but here for
+    assistant-request specifically):
+        {
+          "assistant": { ... full inline assistant config ... }
+        }
+
+    We use the first form — keep the static assistant as the baseline
+    and only override the first message per call.
+    """
+    from_number = msg.from_number or ""
+    log.info("assistant-request for caller %s", from_number or "(unknown)")
+
+    # Run lookup_caller synchronously. We invoke it directly rather than
+    # going through the dispatcher so we can handle it as a pre-call op
+    # with no tool_call_id.
+    try:
+        lookup_result = lookup_caller(
+            DB_PATH,
+            args={},
+            tool_call_id=None,
+            call_meta={"from_number": from_number},
+        )
+    except Exception as e:
+        log.exception("lookup_caller failed during assistant-request: %s", e)
+        lookup_result = None
+
+    # Log the assistant-request event for audit even though there's no call row yet
+    if vapi_call_id := msg.vapi_call_id:
+        try:
+            _ensure_call_row(msg)
+            log_voice_event(
+                DB_PATH,
+                call_id=None,
+                vapi_call_id=vapi_call_id,
+                event_type="assistant_request",
+                data={
+                    "from_number": from_number,
+                    "lookup_status": lookup_result.status if lookup_result else "error",
+                    "lookup_message": (lookup_result.message if lookup_result else "lookup failed")[:200],
+                },
+            )
+        except Exception:
+            log.exception("Could not log assistant_request event")
+
+    # Build the personalized first message
+    first_message = _build_personalized_first_message(lookup_result)
+
+    log.info("assistant-request -> firstMessage: %s", first_message[:100])
+
+    return {
+        "assistantId": DEFAULT_ASSISTANT_ID,
+        "assistantOverrides": {
+            "firstMessage": first_message,
+        },
+    }
+
+
+def _build_personalized_first_message(lookup_result: ToolResult | None) -> str:
+    """Build the first message Vapi will speak on pickup, based on the lookup.
+
+    AI disclosure ("virtual assistant") must appear in every variant — that's
+    the PIPEDA + TCPA safety invariant.
+
+    Variants:
+        - Known rich contact: "Hi {name}, this is Alex Somerville's virtual assistant — how can I help today?"
+        - Placeholder (called before, no name yet): "Hi, this is Alex Somerville's virtual assistant. Good to hear from you again — can I grab your name?"
+        - Unknown: "Hi, this is Alex Somerville's virtual assistant. How can I help you today?"
+        - Lookup failed / no result: same as unknown (safe default)
+    """
+    # Default / safe fallback
+    default_msg = "Hi, this is Alex Somerville's virtual assistant. How can I help you today?"
+
+    if lookup_result is None or lookup_result.status != "success":
+        return default_msg
+
+    data = lookup_result.data or {}
+
+    # Unknown caller
+    if not data.get("known"):
+        return default_msg
+
+    # Known contact but still a placeholder (auto-created from earlier call,
+    # no real name yet)
+    if data.get("placeholder"):
+        return (
+            "Hi, this is Alex Somerville's virtual assistant. "
+            "Good to hear from you again — can I grab your name?"
+        )
+
+    # Rich contact with a real name
+    name = data.get("name") or "there"
+    # Use first name only for the greeting — "Hi James" feels warmer than "Hi James Andrews"
+    first_name = name.split()[0] if name else "there"
+
+    return (
+        f"Hi {first_name}, this is Alex Somerville's virtual assistant. "
+        "How can I help you today?"
+    )
 
 
 def _ensure_call_row(msg: VapiMessage) -> int | None:

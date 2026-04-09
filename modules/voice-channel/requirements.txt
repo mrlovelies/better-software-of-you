@@ -1,0 +1,33 @@
+# Voice Channel — Python dependencies
+# Run on the Razer in an isolated venv: ~/voice-channel-env/
+#
+# Install:
+#   ssh mrlovelies@100.91.234.67 "python3 -m venv ~/voice-channel-env && source ~/voice-channel-env/bin/activate && pip install -r requirements.txt"
+
+# Web framework — webhook endpoint
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# HTTP client for outbound calls (Vapi API, Telegram, SMS via speed-to-lead-gstack)
+httpx>=0.27.0
+
+# Data validation for webhook payloads and tool requests/responses
+pydantic>=2.8.0
+
+# Environment loading (Vapi API keys, etc)
+python-dotenv>=1.0.0
+
+# Date parsing for natural language times in tool calls
+# ("next Tuesday at 2pm" → datetime)
+dateparser>=1.2.0
+
+# Phone number parsing and validation
+phonenumbers>=8.13.0
+
+# SMS sending for booking confirmations (TwilioBackend in messaging_backend.py).
+# Falls back to LogOnlyBackend if TWILIO_* env vars aren't set, so this
+# package is technically optional — install it before flipping on real SMS.
+twilio>=9.0.0
+
+# Optional: structured logging for production debugging
+structlog>=24.1.0

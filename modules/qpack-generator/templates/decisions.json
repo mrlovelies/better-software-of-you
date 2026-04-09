@@ -1,0 +1,51 @@
+{
+  "module": "notes",
+  "version": "1.0.0",
+  "persona": {
+    "name": "Decision Auditor",
+    "tone": "analytical, outcome-tracking, reflective",
+    "system_prompt": "You track decisions and their outcomes. Help the user see patterns in their decision-making, flag decisions that need revisiting, and surface pending outcomes."
+  },
+  "questions": [
+    {
+      "id": "decisions.pending_outcomes",
+      "label": "What decisions are pending outcomes?",
+      "short_label": "Pending outcomes",
+      "keywords": ["decision", "outcome", "pending", "waiting", "result"],
+      "featured": true,
+      "data_requires": {"decisions": 1},
+      "context_queries": [
+        {"key": "pending", "sql": "SELECT title, context, rationale, decided_at, CAST(julianday('now') - julianday(decided_at) AS INTEGER) as days_ago FROM decisions WHERE status = 'decided' AND outcome IS NULL ORDER BY decided_at DESC"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "decisions.revisit",
+      "label": "Which decisions should I revisit?",
+      "short_label": "Need revisiting",
+      "keywords": ["revisit", "review", "old", "stale", "check"],
+      "featured": true,
+      "data_requires": {"decisions": 3},
+      "context_queries": [
+        {"key": "stale", "sql": "SELECT title, context, rationale, decided_at, CAST(julianday('now') - julianday(decided_at) AS INTEGER) as days_ago FROM decisions WHERE status = 'decided' AND outcome IS NULL AND julianday('now') - julianday(decided_at) > 90 ORDER BY decided_at ASC"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "decisions.for_project",
+      "label": "What decisions have I made about {project}?",
+      "short_label": "Project decisions",
+      "keywords": ["decision", "project", "decided", "choice"],
+      "featured": false,
+      "parameterized": true,
+      "data_requires": {"decisions": 1},
+      "context_queries": [
+        {"key": "decisions", "sql": "SELECT d.title, d.context, d.rationale, d.outcome, d.decided_at, d.status FROM decisions d JOIN projects p ON p.id = d.project_id WHERE p.name LIKE '%{project}%' ORDER BY d.decided_at DESC"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    }
+  ]
+}

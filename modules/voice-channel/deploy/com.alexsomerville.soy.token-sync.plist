@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Voice Channel — Google OAuth token sync
+
+  PURPOSE:
+  voice-channel runs on the Razer in its own venv and needs a valid Google
+  OAuth access token to call the Calendar API (freebusy, events.insert, etc).
+  The token files live in ~/.local/share/software-of-you/tokens/ on each
+  machine, which is OUTSIDE the Syncthing scope — so Mac and Razer token
+  files drift over time.
+
+  The drift causes a specific failure mode: when the Mac's MCP server or
+  google_auth refreshes the token, Google rotates the refresh token and
+  silently invalidates copies on other machines. The Razer then hits a
+  401 on its next refresh attempt, freebusy_query errors out, and
+  check_availability raises CalendarBackendError — which the voice agent
+  surfaces as "I'm having trouble reaching the calendar."
+
+  FIX:
+  This launchd agent rsyncs ~/.local/share/software-of-you/tokens/ from
+  the Mac (the machine that interactively re-auths) to the Razer (the
+  machine that only reads the token) every 5 minutes. Direction is
+  deliberately one-way: the Mac is canonical.
+
+  INSTALL (one-time, per Mac install):
+    cp modules/voice-channel/deploy/com.alexsomerville.soy.token-sync.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.alexsomerville.soy.token-sync.plist
+
+  VERIFY:
+    tail -f /tmp/soy-token-sync.log
+    # should show: [YYYY-MM-DD HH:MM:SS] sync ok every ~5 min
+
+  UNLOAD:
+    launchctl unload ~/Library/LaunchAgents/com.alexsomerville.soy.token-sync.plist
+
+  ADJUST FOR YOUR INSTALL:
+  - Replace the Mac username (/Users/mrlovelies/) if yours differs
+  - Replace the Razer SSH target (mrlovelies@100.91.234.67) with your own
+  - Replace the Razer token dir path if your $HOME layout differs
+  - Change the Label string if you want a different job identifier
+
+  ASSUMPTIONS:
+  - SSH key-based auth to the Razer is set up for the Mac user
+  - The key is either unencrypted OR unlocked in macOS keychain via
+    `ssh-add --apple-use-keychain ~/.ssh/id_whatever` so launchd can use
+    it without an interactive ssh-agent session.
+
+  WHEN TO RETIRE THIS:
+  When voice-channel migrates to a Google service account with
+  domain-wide delegation (the "correct for production" pattern), refresh
+  tokens go away entirely and this sync job becomes unnecessary.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.alexsomerville.soy.token-sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>/usr/bin/rsync -a /Users/mrlovelies/.local/share/software-of-you/tokens/ mrlovelies@100.91.234.67:/home/mrlovelies/.local/share/software-of-you/tokens/ &gt;&gt; /tmp/soy-token-sync.log 2&gt;&amp;1 &amp;&amp; echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] sync ok" &gt;&gt; /tmp/soy-token-sync.log</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/soy-token-sync.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/soy-token-sync.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

@@ -205,6 +205,40 @@ The single most dangerous failure mode is the LLM saying "Great, you're booked f
 - Low resource footprint → no concern about resource contention with ambient-research or Gmail sync
 - Same infra pattern as the MCP server → proven reliability
 
+### Google OAuth token sync (Mac → Razer)
+
+**The problem:** voice-channel needs a valid Google OAuth access token to
+call the Calendar API, but the token files live in
+`~/.local/share/software-of-you/tokens/` on each machine, which is
+outside the Syncthing scope. When the Mac (or the MCP server running
+on it) refreshes the access token, Google rotates the refresh token and
+silently invalidates any other copy on other machines. The Razer's
+voice-channel then hits a 401 on its next refresh attempt,
+`freebusy_query` errors out, and the bot surfaces *"I'm having trouble
+reaching the calendar"* to the caller. This happened twice during
+initial development before a fix landed.
+
+**The fix (v1):** a macOS launchd agent on the Mac that rsyncs the
+tokens directory to the Razer every 5 minutes. Direction is deliberately
+one-way (Mac is canonical because the Mac is where the operator
+interactively re-auths Google). The plist template is committed at
+[`deploy/com.alexsomerville.soy.token-sync.plist`](./deploy/com.alexsomerville.soy.token-sync.plist)
+with inline install / verify / adjust instructions.
+
+**Install (per-Mac, one-time):**
+```bash
+cp modules/voice-channel/deploy/com.alexsomerville.soy.token-sync.plist \
+   ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.alexsomerville.soy.token-sync.plist
+tail -f /tmp/soy-token-sync.log  # should show "sync ok" every ~5 min
+```
+
+**When to retire this:** when voice-channel migrates to a Google service
+account with domain-wide delegation (the "correct for production"
+pattern), refresh tokens go away entirely and this sync becomes
+unnecessary. Until then, the launchd job is the operational fix for
+this specific multi-machine drift problem.
+
 ## Safety rails (day 1 requirements)
 
 These are not polish items. They're required before any real call is routed:

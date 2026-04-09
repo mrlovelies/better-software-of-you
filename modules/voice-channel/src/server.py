@@ -68,6 +68,7 @@ from .persistence import (
     upsert_voice_call,
     write_voice_transcript,
 )
+from .security import verify_vapi_signature
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -588,9 +589,17 @@ async def webhook_tool(request: Request):
     - speech-update, transcript, conversation-update: streaming updates
     - end-of-call-report: final summary with transcript and analysis
     - assistant.started, analysis: lifecycle / metadata
+
+    Every inbound request is HMAC-verified against the shared secret
+    before the payload is parsed. The raw body is read once and used
+    for both verification and JSON parsing — re-serialization would
+    change whitespace and invalidate the digest.
     """
+    raw = await request.body()
+    verify_vapi_signature(request.headers, raw)
+
     try:
-        payload = await request.json()
+        payload = json.loads(raw)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 

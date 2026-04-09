@@ -614,6 +614,145 @@ def _render_caller_context(ch: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Services resolution (shared by list_services, check_availability, book_appointment)
+# ---------------------------------------------------------------------------
+
+
+def _load_services(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Parse voice_config.services_json into a list of service dicts.
+
+    Each service has at minimum: name, duration_min, optional price.
+    Returns [] if services_json is missing, malformed, or empty.
+    """
+    raw = config.get("services_json")
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        log.warning("voice_config.services_json is malformed: %r", raw[:120])
+        return []
+    if not isinstance(data, list):
+        return []
+    # Filter to well-formed entries
+    clean: list[dict[str, Any]] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        duration = entry.get("duration_min")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        if not isinstance(duration, int) or duration <= 0:
+            continue
+        clean.append(
+            {
+                "name": name.strip(),
+                "duration_min": duration,
+                "price": entry.get("price"),
+            }
+        )
+    return clean
+
+
+def _resolve_service(
+    services: list[dict[str, Any]],
+    requested: str | None,
+) -> dict[str, Any] | None:
+    """Match a requested service name to a configured service.
+
+    Matching is case-insensitive and tries exact match first, then a
+    substring-in-name fallback so the LLM's paraphrasing (e.g. "voice
+    session" matching "Voice session") works.
+
+    Returns the matching service dict, or None if no match. Callers that
+    want "default to first service" should handle that themselves so the
+    resolution is explicit.
+    """
+    if not services:
+        return None
+    if not requested or not isinstance(requested, str):
+        return None
+    req = requested.strip().lower()
+    if not req:
+        return None
+    # Exact case-insensitive match
+    for svc in services:
+        if svc["name"].lower() == req:
+            return svc
+    # Substring match (both directions — handles "voice" matching "Voice session"
+    # AND "voice session" matching "Voice session")
+    for svc in services:
+        n = svc["name"].lower()
+        if req in n or n in req:
+            return svc
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tool: list_services
+# ---------------------------------------------------------------------------
+
+
+def list_services(
+    db_path: Path,
+    args: dict[str, Any],
+    tool_call_id: str | None = None,
+    call_meta: dict[str, Any] | None = None,
+) -> ToolResult:
+    """Return the list of appointment services the business offers.
+
+    The voice agent should call this when a caller asks about services,
+    or when they mention booking without specifying which type — so the
+    agent can offer options naturally. The tool returns both a natural-
+    language message for the LLM to speak and a structured data payload
+    with service_type names to pass into check_availability/book_appointment.
+    """
+    config = _get_voice_config(db_path)
+    if not config:
+        return ToolResult.error(
+            "Services are not configured.",
+            tool_call_id=tool_call_id,
+        )
+
+    services = _load_services(config)
+    if not services:
+        return ToolResult.error(
+            "No services are configured yet.",
+            tool_call_id=tool_call_id,
+        )
+
+    business_name = config.get("business_name") or "the business"
+
+    # Render a natural message the LLM can speak directly
+    descriptions: list[str] = []
+    for svc in services:
+        duration = svc["duration_min"]
+        name = svc["name"]
+        desc = f"{name} ({duration} minutes)"
+        descriptions.append(desc)
+
+    if len(descriptions) == 1:
+        phrase = descriptions[0]
+    elif len(descriptions) == 2:
+        phrase = f"{descriptions[0]} or {descriptions[1]}"
+    else:
+        phrase = ", ".join(descriptions[:-1]) + f", or {descriptions[-1]}"
+
+    message = f"{business_name} offers {phrase}. Which one were you thinking?"
+
+    return ToolResult.success(
+        message=message,
+        data={
+            "business_name": business_name,
+            "services": services,
+            "service_count": len(services),
+        },
+        tool_call_id=tool_call_id,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tool: check_availability
 # ---------------------------------------------------------------------------
 
@@ -774,18 +913,26 @@ def check_availability(
             tool_call_id=tool_call_id,
         )
 
-    # Resolve the duration from voice_config.services_json (first service)
-    duration_min = 60  # default
-    services_raw = config.get("services_json")
-    if services_raw:
-        try:
-            services = json.loads(services_raw)
-            if isinstance(services, list) and services:
-                first = services[0]
-                if isinstance(first, dict) and isinstance(first.get("duration_min"), int):
-                    duration_min = first["duration_min"]
-        except (json.JSONDecodeError, TypeError):
-            log.warning("voice_config.services_json malformed — using default 60 min")
+    # Resolve the service (honors optional service_type argument from the LLM)
+    services = _load_services(config)
+    service_type_arg = args.get("service_type") if isinstance(args.get("service_type"), str) else None
+    resolved_service: dict[str, Any] | None = None
+    if service_type_arg:
+        resolved_service = _resolve_service(services, service_type_arg)
+        if resolved_service is None:
+            # LLM asked for a service we don't have — return error so it can
+            # recover by calling list_services
+            available_names = ", ".join(s["name"] for s in services) if services else "(none configured)"
+            return ToolResult.error(
+                f"I don't have a service called '{service_type_arg}'. "
+                f"Available services: {available_names}. Call list_services first.",
+                tool_call_id=tool_call_id,
+            )
+    if resolved_service is None and services:
+        resolved_service = services[0]  # default to first configured service
+
+    duration_min = resolved_service["duration_min"] if resolved_service else 60
+    service_name = resolved_service["name"] if resolved_service else "appointment"
 
     # Time preference (optional)
     time_pref = args.get("time_preference")
@@ -897,6 +1044,8 @@ def check_availability(
             "requested_date": target_iso_date,
             "requested_date_humanized": target_humanized,
             "duration_min": duration_min,
+            "service_name": service_name,
+            "service_type": service_name,  # alias for the book_appointment handoff
             "time_preference": time_pref,
             "presentation": presentation,
             "total_open_slots": slot_count,
@@ -978,18 +1127,17 @@ def book_appointment(
     business_name = config.get("business_name") or "the business"
     owner_name = config.get("owner_name") or "the owner"
 
-    # --- Resolve duration ---
-    duration_min = 60
-    services_raw = config.get("services_json")
-    if services_raw:
-        try:
-            services = json.loads(services_raw)
-            if isinstance(services, list) and services:
-                first = services[0]
-                if isinstance(first, dict) and isinstance(first.get("duration_min"), int):
-                    duration_min = first["duration_min"]
-        except (json.JSONDecodeError, TypeError):
-            pass
+    # --- Resolve the service from service_type (optional arg from the LLM) ---
+    services = _load_services(config)
+    service_type_arg = args.get("service_type") if isinstance(args.get("service_type"), str) else None
+    resolved_service: dict[str, Any] | None = None
+    if service_type_arg:
+        resolved_service = _resolve_service(services, service_type_arg)
+    if resolved_service is None and services:
+        resolved_service = services[0]  # default to first configured service
+
+    duration_min = resolved_service["duration_min"] if resolved_service else 60
+    service_name = resolved_service["name"] if resolved_service else "appointment"
 
     # --- Build the slot ---
     try:
@@ -1026,9 +1174,10 @@ def book_appointment(
     )
 
     # --- Build event body ---
-    event_summary = f"{caller_name} — voice booking"
+    event_summary = f"{caller_name} — {service_name}"
     description_parts = [
         f"Booked via voice channel.",
+        f"Service: {service_name} ({duration_min} min)",
         f"Caller: {caller_name}",
     ]
     if caller_phone:
@@ -1061,6 +1210,7 @@ def book_appointment(
         from .persistence import (
             link_voice_call_to_event,
             mirror_calendar_event,
+            upgrade_placeholder_contact_name,
         )
         # The raw Google event response is preserved in booking.raw
         # We need account_email — pull from the backend if available
@@ -1072,6 +1222,24 @@ def book_appointment(
         )
     except Exception:
         log.exception("Failed to mirror calendar event locally — booking still real in Google")
+
+    # --- Step 3b: Upgrade placeholder contact if we just learned the caller's name ---
+    # When a stranger calls and books, `_handle_end_of_call` (earlier in the
+    # call lifecycle) will already have created a "Caller +1..." placeholder
+    # contact for them. Now that we have their real name from caller_name, we
+    # can upgrade that placeholder so subsequent calls recognize them by name
+    # instead of asking again. This is the bug Kerry's test call exposed.
+    if caller_phone and caller_name:
+        try:
+            upgraded = upgrade_placeholder_contact_name(
+                db_path,
+                phone=caller_phone,
+                new_name=caller_name,
+            )
+            if upgraded:
+                log.info("Upgraded placeholder contact for %s to %r", caller_phone, caller_name)
+        except Exception:
+            log.exception("upgrade_placeholder_contact_name raised — booking still real")
 
     # --- Step 4: Link voice_call to the booked event ---
     vapi_call_id = (call_meta or {}).get("vapi_call_id")
@@ -1088,9 +1256,11 @@ def book_appointment(
             from .messaging_backend import get_messaging_backend
             messaging = get_messaging_backend()
             slot_humanized = _format_slot_humanized(slot.start_iso)
+            nice_date_sms = start_dt.strftime("%A, %B %-d").replace(" 0", " ")
             sms_body = (
                 f"Hi {caller_name.split()[0]}, you're booked with {business_name} "
-                f"on {start_dt.strftime('%A, %B %-d').replace(' 0', ' ')} at {slot_humanized}. "
+                f"for a {service_name} ({duration_min} min) "
+                f"on {nice_date_sms} at {slot_humanized}. "
                 f"Reply to this text if you need to change anything. — {owner_name}"
             )
             send_result = messaging.send_sms(caller_phone, sms_body)
@@ -1109,7 +1279,7 @@ def book_appointment(
         nice_date = start_dt.strftime("%A, %B %-d").replace(" 0", " ")
         nice_time = _format_slot_humanized(slot.start_iso)
         body_lines = [
-            f"{caller_name} booked a {duration_min}-min slot",
+            f"{caller_name} booked a {service_name} ({duration_min} min)",
             f"📅 {nice_date} at {nice_time}",
             f"📞 {caller_phone or '(no phone)'}",
         ]
@@ -1158,6 +1328,8 @@ def book_appointment(
             "start_iso": slot.start_iso,
             "end_iso": slot.end_iso,
             "duration_min": duration_min,
+            "service_name": service_name,
+            "service_type": service_name,
             "caller_name": caller_name,
             "caller_phone": caller_phone or None,
             "sms_status": sms_status,
@@ -1176,10 +1348,10 @@ ToolFunction = Callable[[Path, dict[str, Any], str | None, dict[str, Any] | None
 TOOL_REGISTRY: dict[str, ToolFunction] = {
     "get_business_hours": get_business_hours,
     "lookup_caller": lookup_caller,
+    "list_services": list_services,
     "check_availability": check_availability,
     "book_appointment": book_appointment,
     # Future tools (Week 2+):
-    # "list_services": list_services,
     # "send_confirmation_sms": send_confirmation_sms,
     # "transfer_to_human": transfer_to_human,
     # "log_call_outcome": log_call_outcome,

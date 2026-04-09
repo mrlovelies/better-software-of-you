@@ -658,6 +658,116 @@ def mirror_calendar_event(
         db.close()
 
 
+def upgrade_placeholder_contact_name(
+    db_path: Path,
+    phone: str,
+    new_name: str,
+) -> bool:
+    """Promote a 'Caller +1...' placeholder contact to a real named contact.
+
+    When a stranger calls the voice line and successfully books an appointment,
+    we learn their name during the booking flow (passed as book_appointment's
+    caller_name argument). Without this helper, the contact stays stuck as
+    the auto-created placeholder "Caller +1..." row and every subsequent call
+    hits the "good to hear from you again — can I grab your name?" branch
+    even though we already have their name from the previous booking.
+
+    Logic:
+        1. Find the contact by normalized phone (E.164 match)
+        2. Refuse to touch the owner's own contact (defense-in-depth — should
+           never be reached because owner bookings won't be strangers, but
+           the is_owner_phone check is cheap insurance)
+        3. Only upgrade if the contact is a placeholder (name starts with
+           "Caller " OR notes contain "Auto-created from inbound voice call")
+           — we never overwrite a real named contact with a caller-supplied
+           name, because that's a potential spoofing vector
+        4. Update name AND append a note so the audit trail is readable
+
+    Returns True if a contact was upgraded, False otherwise (no match,
+    already named, owner phone, or SQL error).
+    """
+    if not phone or not new_name or not new_name.strip():
+        return False
+
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return False
+
+    # Defense in depth: never touch the owner's own contact row
+    if is_owner_phone(db_path, normalized):
+        return False
+
+    clean_name = new_name.strip()
+    if not clean_name:
+        return False
+
+    db = get_db(db_path)
+    try:
+        # Fuzzy-match phone: try exact E.164 first, then normalize every
+        # active contact's phone and compare (matches the same pattern as
+        # find_or_create_contact_by_phone)
+        row = db.execute(
+            "SELECT id, name, notes FROM contacts WHERE phone = ? AND status = 'active' LIMIT 1",
+            (normalized,),
+        ).fetchone()
+
+        if not row:
+            candidates = db.execute(
+                "SELECT id, name, notes, phone FROM contacts "
+                "WHERE phone IS NOT NULL AND phone != '' AND status = 'active'"
+            ).fetchall()
+            for cand in candidates:
+                if normalize_phone(cand["phone"]) == normalized:
+                    row = cand
+                    break
+
+        if not row:
+            log.info("upgrade_placeholder_contact_name: no contact matches %s", phone)
+            return False
+
+        current_name = (row["name"] or "").strip()
+        current_notes = (row["notes"] or "").lower()
+        is_placeholder = (
+            current_name.startswith("Caller ")
+            or "auto-created from inbound voice call" in current_notes
+        )
+
+        if not is_placeholder:
+            log.info(
+                "upgrade_placeholder_contact_name: contact %d is not a placeholder "
+                "(name=%r) — refusing to overwrite",
+                row["id"],
+                current_name,
+            )
+            return False
+
+        new_notes = (
+            (row["notes"] or "").rstrip()
+            + (" " if (row["notes"] or "").strip() else "")
+            + f"Name upgraded from placeholder to '{clean_name}' via voice booking on "
+            + datetime.utcnow().isoformat()
+            + "Z."
+        )
+
+        db.execute(
+            "UPDATE contacts SET name = ?, notes = ?, updated_at = datetime('now') WHERE id = ?",
+            (clean_name, new_notes, row["id"]),
+        )
+        db.commit()
+        log.info(
+            "Upgraded placeholder contact %d (was %r) -> %r",
+            row["id"],
+            current_name,
+            clean_name,
+        )
+        return True
+    except sqlite3.OperationalError as e:
+        log.error("upgrade_placeholder_contact_name failed: %s", e)
+        return False
+    finally:
+        db.close()
+
+
 def link_voice_call_to_event(
     db_path: Path,
     vapi_call_id: str,

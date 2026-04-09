@@ -257,6 +257,174 @@ Every channel reads from the same `contacts`, `calendar_events`, and `transcript
 - **Do not hardcode Vapi.** Even though we're committing to Vapi for v1, the tool implementations should be decoupled from Vapi's specific request/response format. Vapi adapter is a thin layer; tool logic is framework-agnostic. This is the "reversibility" property that makes integrate-first safe.
 - **Do not store Vapi API keys in plain text.** Use the same encrypted credential pattern as `service_credentials` (or whatever SoY's current credential storage is).
 
+## Post-v1 roadmap (deferred feature specs)
+
+These are features that are not in v1 but have been spec'd so they don't
+get lost and so anyone picking them up later has the load-bearing context.
+
+### Proactive retention agent (Kerry's idea, 2026-04-09)
+
+**The pitch**
+
+For any service with a natural cadence — haircuts every 2-3 weeks, dental
+cleanings every 6 months, pet grooming monthly, oil changes every 3
+months, voice coaching weekly, therapy biweekly — customers drift. They
+mean to rebook, they forget, they come back later than intended, and
+the business loses predictable revenue to invisible churn. The voice
+channel module already knows who everyone is, when they last visited,
+and what service they got. A small background agent that reads that
+graph and proactively nudges customers before the drift window gets
+expensive turns a reactive booking system into a retention engine.
+
+Kerry's framing in his own words: *"it's not even that it's replacing a
+receptionist, it's that it's creating a more predictable revenue angle."*
+His vivid example: he forgets to rebook his haircut, goes from a
+2-week to a 4-5 week cycle, and his barber gives him shit. Multiply
+that across every customer an indie business has, and the recovered
+revenue is material — for a barber doing 40 clients a week, shifting
+the average interval by even one week against a natural 2-week cadence
+is a ~15-25% revenue lift.
+
+**Data model (no schema changes needed for a first pass)**
+
+All the load-bearing data already exists:
+- `contacts` — who the customer is
+- `contact_interactions` — when they last visited (type='call' rows
+  created by voice-channel bookings)
+- `calendar_events` — confirmed bookings with start_time
+- `voice_config.services_json` — the service catalog, which will be
+  extended to include `expected_interval_days` per service
+- `voice_calls.booked_event_id` — the voice-channel booking audit trail
+
+Extension: add `expected_interval_days` and `nudge_grace_days` to each
+service entry in `voice_config.services_json`. Example:
+
+```json
+{
+  "name": "Voice session",
+  "duration_min": 60,
+  "price": 350,
+  "expected_interval_days": 21,
+  "nudge_grace_days": 5
+}
+```
+
+A customer is "due" when `days_since_last_booking_for_service >=
+expected_interval_days - nudge_grace_days` and "overdue" when
+`days_since_last_booking_for_service >= expected_interval_days`.
+
+**Trigger logic (cron-driven agent, runs daily)**
+
+```
+for each contact in contacts (status='active'):
+  for each service in voice_config.services_json:
+    last_visit = latest calendar_events.start_time for this contact
+                 where event has this service
+    if last_visit is None: skip  (first-time customer, no cadence yet)
+    interval = service.expected_interval_days
+    grace = service.nudge_grace_days
+    days_since = (now - last_visit).days
+    if days_since >= (interval - grace):
+      if already_nudged_in_last_N_days(contact, service): skip
+      if contact.unsubscribed_from_nudges: skip
+      if now is inside blackout_window (e.g., business hours only): skip
+      queue_nudge(contact, service, urgency_tier)
+```
+
+**Urgency tiers (shape the message tone)**
+
+- `approaching` — days_since in [interval-grace, interval): "Hey, looks
+  like it's been a few weeks — want to book your next session?"
+- `due` — days_since in [interval, interval+grace*2]: "Hi, it's been
+  about 3 weeks — you usually come in around now. Want me to find a time?"
+- `overdue` — days_since > interval+grace*2: "Hey — haven't seen you
+  in a while. Want to get something on the calendar?"
+
+Each tier gets a different message template the LLM personalizes at
+send time using lookup_caller-style context (first name, service
+history, usual time preferences inferred from past bookings).
+
+**Delivery path**
+
+Uses the existing `messaging_backend.send_sms()` — same Twilio/LogOnly
+abstraction the booking flow uses. Optional v2.x extension: for high-
+value customers or when SMS reply isn't actionable, trigger an outbound
+Vapi call that invites the customer to book over voice. The outbound
+call uses the same tool registry (check_availability, book_appointment)
+so the conversation loop is identical to the inbound case — one agent,
+one flow, one data graph.
+
+**Opt-out and compliance (PIPEDA + TCPA)**
+
+This is load-bearing, not polish. Nudges are commercial electronic
+messages and the opt-out/consent rules are not optional.
+
+- First contact: the customer consented to being contacted about their
+  booking (SMS confirmation implies transactional consent). A proactive
+  nudge is NOT a transactional message — it's marketing/retention, which
+  requires explicit consent.
+- Required: add a `nudge_consent` column to contacts (default False).
+  Set True only via (a) an opt-in checkbox on a booking form, (b) a
+  verbal opt-in captured on a voice call ("Want me to text you a
+  reminder when it's about time for your next session?"), or (c) a
+  STOP-to-opt-out workflow where every first nudge includes a clear
+  opt-out instruction and "STOP" replies mark the contact as opted out.
+- Every outbound nudge SMS must include "Reply STOP to opt out" per
+  CRTC/TCPA guidance.
+- `contact_unsubscribed_at` timestamp column for when they opted out.
+- Maximum nudge frequency cap (e.g., 1 nudge per customer per 14 days
+  regardless of service) to prevent spamming.
+- Blackout windows: no nudges before 9am or after 9pm in the customer's
+  timezone, no nudges on statutory holidays, no nudges on weekends for
+  B2B services.
+
+**Metrics to track from day one**
+
+- Rebooking rate (nudged vs. control) — this is the feature's whole
+  reason to exist, so measuring it is non-negotiable
+- Time-to-rebook after nudge (distribution)
+- Opt-out rate per nudge (if > 5% something is wrong — too frequent,
+  tone off, or wrong audience)
+- False-positive rate: customers nudged who had already booked through
+  another channel the agent didn't see yet (important for multi-channel
+  installs)
+
+**Architecture: a new module, not an extension of voice-channel**
+
+The retention agent is its own SoY module (`modules/retention-agent/`)
+rather than a feature of voice-channel, because:
+1. It's not voice — it's async SMS/email/push, with optional outbound
+   voice as a v2.x branch. The shared abstraction is the data graph,
+   not the channel.
+2. It runs on a cron, not a webhook. Different deployment shape.
+3. It reads from multiple modules (contacts, calendar, voice_config)
+   and writes to a new `retention_nudges` table. It's a consumer of
+   voice-channel's output, not part of voice-channel itself.
+4. Per-install enable/disable: some tenants will want retention, some
+   won't. Keeping it as a separate module makes that a manifest flag.
+
+The voice-channel contribution is: when we add `expected_interval_days`
+to `voice_config.services_json`, we're giving the future retention
+agent the signal it needs to trigger. That's the only v1 voice-channel
+change the retention agent requires — and it can be done proactively
+before the retention agent module is written, so day-one installs of
+voice-channel already collect the data the retention agent will need.
+
+**What to do in v1 of voice-channel (low cost, high option value)**
+
+Add optional `expected_interval_days` and `nudge_grace_days` fields to
+the `services_json` schema. Document them in the voice-channel CLAUDE.md
+as "used by the retention agent when that module ships". v1 booking
+ignores them — they cost nothing if unused. When the retention agent
+module lands, the data is already there.
+
+**When to build it**
+
+After voice-channel basic booking is stable, has at least 2 tenants,
+and has accumulated enough real booking data to validate cadence
+assumptions. Rough gate: 50+ real customer bookings across at least 2
+distinct services. Building sooner means building on assumptions.
+
 ## Timeline: 3-week parallel sprint
 
 ### Week 1 — Infrastructure + first real call

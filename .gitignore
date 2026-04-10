@@ -49,7 +49,9 @@ hub/tasks/handoff.md
 
 # Local benchmarks and builds (regenerable)
 builds/
-benchmarks/
+benchmarks/*
+# Tracked benchmarks (intentional, not scratch):
+!benchmarks/loci/
 
 # Personal infrastructure docs with hostnames/keys/identifiers — never commit
 docs/plex-media-stack.md

@@ -55,6 +55,7 @@ if _BENCH_DIR not in sys.path:
 
 import arms  # noqa: E402
 import judge  # noqa: E402
+import judge_subagent  # noqa: E402
 import report  # noqa: E402
 
 
@@ -501,6 +502,17 @@ def main() -> None:
     p_report.add_argument("--output", default=None,
                           help="Output path (default: benchmarks/loci/report-<run_id>.md)")
 
+    p_pkg = sub.add_parser("judge-package",
+                           help="Dump a judge package + blind map for the subagent path")
+    p_pkg.add_argument("run_id", help="The run ID to package")
+
+    p_imp = sub.add_parser("judge-import",
+                           help="Import scores from a subagent-produced scores file")
+    p_imp.add_argument("run_id", help="The run ID")
+    p_imp.add_argument("scores_path", help="Path to the JSON scores file from the subagent")
+    p_imp.add_argument("--blind-map", default=None,
+                       help="Path to blind map file (default: blind_map_<run_id>.json next to results.db)")
+
     args = parser.parse_args()
 
     if args.cmd == "run":
@@ -534,6 +546,33 @@ def main() -> None:
             output_path=args.output,
         )
         print(f"Report written to {path}")
+    elif args.cmd == "judge-package":
+        result = judge_subagent.dump_package(
+            run_id=args.run_id,
+            results_db_path=RESULTS_DB_PATH,
+            prompts_path=PROMPTS_PATH,
+        )
+        print(f"Judge package: {result['package_path']}")
+        print(f"Blind map:     {result['blind_map_path']}")
+        print(f"Entries:       {result['n_entries']} ({result['n_prompts']} prompts × 3 arms)")
+        print()
+        print("Hand the package_*.json file to a subagent. It writes back a "
+              "scores_*.json file. Then run:")
+        print(f"  python3 benchmarks/loci/runner.py judge-import {args.run_id} "
+              f"benchmarks/loci/scores_{args.run_id}.json")
+    elif args.cmd == "judge-import":
+        blind_map_path = args.blind_map or os.path.join(
+            os.path.dirname(RESULTS_DB_PATH), f"blind_map_{args.run_id}.json"
+        )
+        result = judge_subagent.import_scores(
+            run_id=args.run_id,
+            scores_path=args.scores_path,
+            blind_map_path=blind_map_path,
+            results_db_path=RESULTS_DB_PATH,
+        )
+        print(f"Imported: {result['inserted']}/{result['total']} scores")
+        print(f"Skipped:  {result['skipped']}")
+        print(f"Errors:   {result['errors']}")
 
 
 if __name__ == "__main__":

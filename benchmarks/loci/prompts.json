@@ -117,11 +117,11 @@
         "facts": [
           "Project: Specsite (id 206), status active",
           "Eight decisions on file: Templates over AI-generated HTML (id 24, 2026-02-01), Places API New over legacy (id 27, 2026-02-01), Python over Node for pipeline (id 30, 2026-02-01), 5 design token presets + geographic deconfliction (id 25, 2026-02-10), Cloudflare D1 for deployment (id 26, 2026-02-15), Reviews 4+ stars only on display (id 28, 2026-02-20), E-commerce disqualification (id 29, 2026-02-25), Single-page static HTML no framework (id 31, 2026-03-06)",
-          "Cross-content link: Note id 25 (AloneinaBar Repo: better-websites) describes the same pipeline concept and is tagged 'specsite' — Specsite IS the better-websites pipeline as productized for Kerry's AloneinaBar org"
+          "Cross-content link: Note id 25 (AloneinaBar Repo: better-websites) describes the same pipeline concept — Specsite IS the better-websites pipeline as productized for Kerry's AloneinaBar org. Note 25 also has linked_projects=[214, 206], which is the proper FK link that should surface in any project-centered fetch."
         ]
       },
-      "expected_arm_gradient": "high",
-      "design_notes": "Project-centered prep with a tag-based cross-content link. Arms A and B return the decisions list. Arm C should additionally pull the better-websites note via tag/concept proximity. This is the cleanest test of whether loci can do tag-based traversal beyond foreign-key joins."
+      "expected_arm_gradient": "medium",
+      "design_notes": "Project-centered prep. ORIGINAL HYPOTHESIS (Diego Reyes panel finding): this was billed as 'the cleanest test of tag-based traversal beyond foreign-key joins' because note 25 was thought to be reachable only via tag proximity. That hypothesis is WRONG — note 25's content contains the literal string 'specsite' (verified directly against the live DB), so flat content LIKE search will surface it as a seed in arms A and C. The prompt no longer isolates the tag-walk capability. What this prompt now ACTUALLY tests: (1) project-centered neighborhood completeness — arms A/B return the decisions list, arm C should additionally walk the linked_projects FK from project Specsite (id 206) to note 25 since note 25's linked_projects=[214, 206] explicitly includes Specsite; (2) whether arm C's tree presentation of decisions + the better-websites note produces a more useful prep brief than arm B's flat dump. Tag-walk isolation needs a different prompt — flagged as a follow-up for the prompt set."
     },
     {
       "id": "P3",

@@ -106,6 +106,39 @@ def check_machine(name):
 
 # --- Architecture Context ---
 
+def gather_file_inventory():
+    """Build a list of files Tier 2 recommendations may target.
+
+    Returns a sectioned string of relative paths, scoped to files that
+    recommendations might plausibly modify. The model is instructed to
+    ground target_files against this list — anything outside it will be
+    rejected by post-validation as hallucinated.
+
+    Sections are capped individually so commands/ doesn't crowd out
+    migrations/ or modules/.
+    """
+    sections = [
+        ("Core",       ["CLAUDE.md", "shared/bootstrap.sh"], 5),
+        ("Modules",    ["modules/*/manifest.json", "modules/*/*.py", "modules/*/*/*.py"], 70),
+        ("Shared",     ["shared/*.py", "shared/*.sh"], 60),
+        ("Migrations", ["data/migrations/*.sql"], 70),
+        ("Commands",   ["commands/*.md"], 30),
+        ("Skills",     ["skills/*/SKILL.md"], 30),
+    ]
+    out = []
+    for name, patterns, cap in sections:
+        files = set()
+        for pat in patterns:
+            for p in PLUGIN_ROOT.glob(pat):
+                if p.is_file():
+                    files.add(str(p.relative_to(PLUGIN_ROOT)))
+        capped = sorted(files)[:cap]
+        if capped:
+            out.append(f"### {name}")
+            out.extend(capped)
+    return "\n".join(out)
+
+
 def gather_architecture_context():
     """Read the actual SoY architecture to inject into evaluation prompts."""
     ctx = []
@@ -115,6 +148,16 @@ def gather_architecture_context():
     if claude_md.exists():
         content = claude_md.read_text()[:3000]
         ctx.append(f"## CLAUDE.md (Architecture Overview)\n{content}")
+
+    # File inventory — what target_files may reference
+    inventory = gather_file_inventory()
+    if inventory:
+        ctx.append(
+            "## Available Target Files\n"
+            "(target_files in your recommendation MUST be drawn from this list. "
+            "Paths outside it will be rejected as hallucinated.)\n"
+            f"{inventory}"
+        )
 
     # Installed modules
     db = get_db()
@@ -347,30 +390,141 @@ dependency_update, config_tweak, new_feature, performance, security, api_migrati
 ## Auto-eligibility
 Mark auto_eligible=true ONLY for: version bumps in configs, Ollama model pulls, cron schedule adjustments, environment variable changes. Everything else requires human review.
 
+## Hard Rules — recommendations that violate these will be rejected
+
+1. **target_files MUST be drawn from the "Available Target Files" list above.**
+   Do not invent paths. Do not write generic names like "ambient-research.py" or
+   "config.py" — use the exact relative path as it appears in the inventory. If
+   no file in the inventory matches what your recommendation needs, return skip.
+
+2. **user_impact MUST be a concrete 1-2 sentence answer.**
+   Specifically: what new capability appears, what existing pain goes away, what
+   gets faster/safer, OR what risk is mitigated. Vague impact like "improves
+   performance" or "enhances the system" will be rejected.
+
+3. **proposed_changes MUST describe the change at the function/file level.**
+   "Implement MCP protocol" is not a change — that's a category. "Update
+   modules/ambient-research/run.py:run_tier1() to call ollama_generate with
+   keep_alive=-1" is a change. Be specific or skip.
+
+4. **Prefer skip over filler.** If the finding is too generic to ground in the
+   architecture, return {{"skip": true, "reason": "why"}}. A skipped rec is
+   more valuable than a vague one.
+
+## Response Schema
 Respond with ONLY a JSON object (no markdown fences, no explanation):
 {{
-  "title": "Update X in file Y because Z",
-  "description": "Full rationale with evidence from the finding",
+  "title": "Concrete one-line title naming the file or module being changed",
+  "description": "Full rationale grounded in the finding's evidence",
   "category": "one of the categories above",
+  "user_impact": "1-2 sentences: what specifically changes for the user if this lands",
   "relevance": N, "effort": N, "impact": N, "urgency": N, "risk": N,
-  "target_files": ["path/to/file1.py"],
-  "proposed_changes": "## What to change\\nConcrete description of the change",
-  "affected_modules": ["module-name"],
+  "target_files": ["modules/ambient-research/run.py", "shared/bootstrap.sh"],
+  "proposed_changes": "## What to change\\n- Step 1: specific change to specific function in specific file\\n- Step 2: ...",
+  "affected_modules": ["module-name-from-installed-list"],
   "auto_eligible": false,
   "requires_review": "Why human review is needed"
 }}
 
-Be CONCRETE. Not "consider improving performance" but "Add WAL mode to X file because Y."
-If the finding doesn't warrant a specific recommendation, respond: {{"skip": true, "reason": "why"}}"""
+To skip: {{"skip": true, "reason": "concrete reason — e.g. 'finding is generic AI hype with no actionable change for SoY'"}}"""
+
+
+def validate_recommendation(evaluation, plugin_root):
+    """Post-validation for Tier 2 model output.
+
+    Returns (valid, reason) tuple. Filters target_files to only existing
+    paths and enforces minimum quality on user_impact and proposed_changes.
+    Mutates evaluation in-place to remove hallucinated paths.
+    """
+    # target_files: filter to existing paths.
+    # Empty target_files is allowed (the rec can still be useful without
+    # them — the user reviews and decides). What we reject is hallucination:
+    # the model proposed paths AND none of them exist.
+    raw_targets = evaluation.get("target_files", []) or []
+    if not isinstance(raw_targets, list):
+        raw_targets = []
+    real_targets = []
+    hallucinated = []
+    for tf in raw_targets:
+        if not isinstance(tf, str):
+            continue
+        tf_clean = tf.lstrip("/").strip()
+        if not tf_clean:
+            continue
+        if (plugin_root / tf_clean).exists():
+            real_targets.append(tf_clean)
+        else:
+            hallucinated.append(tf_clean)
+    evaluation["target_files"] = real_targets
+    evaluation["_hallucinated_targets"] = hallucinated
+
+    # Reject ONLY if the model proposed paths and ALL of them are hallucinated.
+    # This catches the original failure mode (rec #1 with "ambient-research.py",
+    # "telegram-bot.py", "user-profile.py" — none exist) without rejecting
+    # recs where the model just couldn't pick files.
+    if hallucinated and not real_targets:
+        return False, f"all proposed target_files are hallucinated: {hallucinated[:3]}"
+
+    # user_impact: must exist, must be substantive
+    user_impact = (evaluation.get("user_impact") or "").strip()
+    if len(user_impact) < 30:
+        return False, f"user_impact too short ({len(user_impact)} chars)"
+    vague_phrases = ["improve performance", "enhance the system", "improves the system",
+                     "better integration", "increase efficiency", "optimize performance"]
+    if any(p in user_impact.lower() for p in vague_phrases) and len(user_impact) < 80:
+        return False, "user_impact contains vague filler without concrete grounding"
+
+    # proposed_changes: must be substantive
+    proposed = (evaluation.get("proposed_changes") or "").strip()
+    if len(proposed) < 50:
+        return False, f"proposed_changes too short ({len(proposed)} chars)"
+    if proposed.lower() in ("todo", "investigate", "tbd", "see description"):
+        return False, "proposed_changes is a placeholder"
+
+    return True, "ok"
+
+
+def extract_json(response_text):
+    """Robust JSON extraction from model output.
+
+    Handles: naked JSON, ```json fenced blocks, JSON with leading/trailing prose.
+    Returns parsed dict or None on failure (caller logs the raw response).
+    """
+    if not response_text:
+        return None
+    text = response_text.strip()
+
+    # Try fenced ```json block first
+    if "```json" in text:
+        try:
+            start = text.index("```json") + len("```json")
+            end = text.index("```", start)
+            return json.loads(text[start:end].strip())
+        except (ValueError, json.JSONDecodeError):
+            pass
+
+    # Try naked JSON: find first { and last }
+    if "{" in text and "}" in text:
+        try:
+            start = text.index("{")
+            end = text.rindex("}") + 1
+            return json.loads(text[start:end])
+        except (ValueError, json.JSONDecodeError):
+            pass
+
+    return None
 
 
 def evaluate_tier2():
     """Multi-dimension scoring with architecture context injection."""
-    # Prefer Legion (gemma4:e2b @ 164 tok/s), fall back to Lucy, then Razer with 7b
-    if check_machine("legion"):
-        machine_name, model = "legion", "gemma4:e2b"
-    elif check_machine("lucy"):
+    # Prefer Lucy (qwen2.5:14b) for Tier 2: it's slower than Legion's
+    # gemma4:e2b but follows structured output schemas (user_impact,
+    # target_files grounded against the inventory) much more reliably.
+    # The 12h cron cadence means speed isn't critical here; quality is.
+    if check_machine("lucy"):
         machine_name, model = "lucy", "qwen2.5:14b"
+    elif check_machine("legion"):
+        machine_name, model = "legion", "gemma4:e2b"
     elif check_machine("soy-1"):
         machine_name, model = "soy-1", "qwen2.5:7b"
     else:
@@ -408,23 +562,32 @@ def evaluate_tier2():
             log(f"  Rec {rec['id']}: ERROR — {result['error'][:80]}")
             continue
 
-        try:
-            response_text = result["response"].strip()
-            if "{" in response_text:
-                json_str = response_text[response_text.index("{"):response_text.rindex("}") + 1]
-                evaluation = json.loads(json_str)
-            else:
-                log(f"  Rec {rec['id']}: no JSON in response")
-                continue
-        except (json.JSONDecodeError, ValueError) as e:
-            log(f"  Rec {rec['id']}: JSON parse error — {e}")
+        evaluation = extract_json(result.get("response", ""))
+        if evaluation is None:
+            raw = (result.get("response") or "")[:200].replace("\n", " ")
+            log(f"  Rec {rec['id']}: could not parse JSON — raw[:200]={raw!r}")
             continue
 
         if evaluation.get("skip"):
-            db.execute("UPDATE infra_recommendations SET status = 'rejected', review_notes = ?, tier_evaluated = 2, updated_at = datetime('now') WHERE id = ?",
-                (evaluation.get("reason", "Skipped by Tier 2"), rec["id"]))
+            db.execute(
+                "UPDATE infra_recommendations SET status = 'rejected', review_notes = ?, "
+                "tier_evaluated = 2, updated_at = datetime('now') WHERE id = ?",
+                (evaluation.get("reason", "Skipped by Tier 2"), rec["id"]),
+            )
             db.commit()
             log(f"  Rec {rec['id']}: SKIPPED — {evaluation.get('reason', '')[:80]}")
+            continue
+
+        # Post-validate: filter hallucinated paths, enforce minimum quality
+        valid, reason = validate_recommendation(evaluation, PLUGIN_ROOT)
+        if not valid:
+            db.execute(
+                "UPDATE infra_recommendations SET status = 'rejected', review_notes = ?, "
+                "tier_evaluated = 2, updated_at = datetime('now') WHERE id = ?",
+                (f"validation failed: {reason}", rec["id"]),
+            )
+            db.commit()
+            log(f"  Rec {rec['id']}: REJECTED — {reason}")
             continue
 
         scores = {
@@ -443,7 +606,7 @@ def evaluate_tier2():
 
         db.execute("""
             UPDATE infra_recommendations SET
-                title = ?, description = ?, category = ?,
+                title = ?, description = ?, category = ?, user_impact = ?,
                 relevance_score = ?, effort_score = ?, impact_score = ?,
                 urgency_score = ?, risk_score = ?, composite_score = ?,
                 target_files = ?, proposed_changes = ?, affected_modules = ?,
@@ -455,6 +618,7 @@ def evaluate_tier2():
             evaluation.get("title", rec["title"]),
             evaluation.get("description", ""),
             category,
+            evaluation.get("user_impact", ""),
             scores["relevance"], scores["effort"], scores["impact"],
             scores["urgency"], scores["risk"], composite,
             json.dumps(evaluation.get("target_files", [])),
@@ -469,10 +633,17 @@ def evaluate_tier2():
 
         # Auto-approve if eligible
         if auto_eligible:
-            db.execute("UPDATE infra_recommendations SET status = 'approved', reviewed_by = 'auto', reviewed_at = datetime('now') WHERE id = ?", (rec["id"],))
+            db.execute(
+                "UPDATE infra_recommendations SET status = 'approved', reviewed_by = 'auto', "
+                "reviewed_at = datetime('now') WHERE id = ?",
+                (rec["id"],),
+            )
             log(f"  Rec {rec['id']}: AUTO-APPROVED — {evaluation.get('title', '')[:60]} (composite={composite})")
         else:
             log(f"  Rec {rec['id']}: SCORED — {evaluation.get('title', '')[:60]} (composite={composite})")
+
+        if evaluation.get("_hallucinated_targets"):
+            log(f"    (filtered hallucinated paths: {evaluation['_hallucinated_targets'][:3]})")
 
         db.commit()
         scored += 1
@@ -723,9 +894,306 @@ def cmd_status():
     db.close()
 
 
+# --- Review subcommands (human triage surface) ---
+
+def cmd_list_pending():
+    """List pending Tier-2-evaluated recommendations ranked by composite score."""
+    db = get_db()
+    pending = db.execute("""
+        SELECT r.id, r.title, r.category, r.composite_score, r.user_impact,
+               r.target_files, r.affected_modules, r.created_at
+        FROM infra_recommendations r
+        WHERE r.status = 'pending' AND r.tier_evaluated = 2
+        ORDER BY r.composite_score DESC, r.created_at ASC
+    """).fetchall()
+
+    if not pending:
+        print("No pending recommendations awaiting review.")
+        db.close()
+        return
+
+    print(f"\n{len(pending)} pending recommendation(s):\n")
+    for r in pending:
+        targets = json.loads(r["target_files"]) if r["target_files"] else []
+        target_str = ", ".join(targets[:3]) + (f" (+{len(targets)-3} more)" if len(targets) > 3 else "")
+        score = r["composite_score"] or 0
+        print(f"  [{r['id']:>3}] {score:>4.1f}  [{r['category']}]")
+        print(f"        {r['title']}")
+        if r["user_impact"]:
+            print(f"        Impact: {r['user_impact'][:120]}")
+        if target_str:
+            print(f"        Files:  {target_str}")
+        print()
+
+    print("Use 'show <id>' for full detail or 'preview <id>' to generate the implementation plan on demand.")
+    db.close()
+
+
+def cmd_show(rec_id):
+    """Print full detail for a single recommendation."""
+    db = get_db()
+    rec = db.execute(
+        "SELECT * FROM infra_recommendations WHERE id = ?",
+        (rec_id,),
+    ).fetchone()
+
+    if not rec:
+        print(f"No recommendation with id {rec_id}")
+        db.close()
+        return
+
+    targets = json.loads(rec["target_files"]) if rec["target_files"] else []
+    affected = json.loads(rec["affected_modules"]) if rec["affected_modules"] else []
+
+    print(f"\n{'='*60}")
+    print(f"  Recommendation #{rec['id']}")
+    print(f"{'='*60}\n")
+    print(f"Title:     {rec['title']}")
+    print(f"Category:  {rec['category']}")
+    print(f"Status:    {rec['status']}")
+    print(f"Composite: {rec['composite_score']}")
+    print(f"Scores:    relevance={rec['relevance_score']} effort={rec['effort_score']} "
+          f"impact={rec['impact_score']} urgency={rec['urgency_score']} risk={rec['risk_score']}")
+    print(f"Model:     {rec['model_used']} (tier {rec['tier_evaluated']})")
+    print(f"Created:   {rec['created_at']}")
+
+    if rec["user_impact"]:
+        print(f"\n## What This Does For You\n{rec['user_impact']}")
+
+    if rec["description"]:
+        print(f"\n## Description\n{rec['description']}")
+
+    if rec["proposed_changes"]:
+        print(f"\n## Proposed Changes\n{rec['proposed_changes']}")
+
+    if targets:
+        print(f"\n## Target Files\n" + "\n".join(f"  - {t}" for t in targets))
+
+    if affected:
+        print(f"\n## Affected Modules\n" + ", ".join(affected))
+
+    if rec["requires_review"]:
+        print(f"\n## Why Human Review\n{rec['requires_review']}")
+
+    if rec["review_notes"]:
+        print(f"\n## Review Notes\n{rec['review_notes']}")
+
+    print(f"\nActions: approve {rec_id} | reject {rec_id} | defer {rec_id} | preview {rec_id}\n")
+    db.close()
+
+
+def _find_claude_bin():
+    """Locate the Claude CLI binary, returning None if not found."""
+    for path in ["/usr/local/bin/claude", "/usr/bin/claude"]:
+        if Path(path).exists():
+            return path
+    try:
+        result = subprocess.run(["which", "claude"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def cmd_preview(rec_id):
+    """Generate Tier 3 implementation plan for a single rec WITHOUT committing.
+
+    This is the 'show me what this would actually do' affordance: invokes
+    Claude CLI with the rec context, prints the plan, and exits. No session
+    handoff is created and the rec status is unchanged.
+    """
+    db = get_db()
+    rec = db.execute("SELECT * FROM infra_recommendations WHERE id = ?", (rec_id,)).fetchone()
+    if not rec:
+        print(f"No recommendation with id {rec_id}")
+        db.close()
+        return
+
+    claude_bin = _find_claude_bin()
+    if not claude_bin:
+        print("ERROR: Claude CLI not found — install or alias 'claude' in PATH")
+        db.close()
+        return
+
+    # Build prompt with target file contents
+    file_contents = []
+    targets = json.loads(rec["target_files"]) if rec["target_files"] else []
+    for tf in targets[:5]:
+        fp = PLUGIN_ROOT / tf
+        if fp.exists():
+            try:
+                content = fp.read_text()[:5000]
+                file_contents.append(f"### {tf}\n```\n{content}\n```")
+            except Exception:
+                pass
+
+    prompt = f"""You are previewing an infrastructure improvement for Software of You (SoY).
+
+This is a PREVIEW — produce the implementation plan for review. Do NOT execute anything.
+
+## Recommendation
+Title: {rec['title']}
+Category: {rec['category']}
+Description: {rec['description']}
+User Impact: {rec['user_impact'] or '(none)'}
+Composite Score: {rec['composite_score']}
+
+## Proposed Changes
+{rec['proposed_changes']}
+
+## Target Files
+{chr(10).join(file_contents) if file_contents else 'No target files specified'}
+
+## Task
+Produce an implementation plan with:
+1. Exact code changes (show diffs or complete replacement blocks)
+2. Any new migration SQL needed
+3. Test plan (how to verify the change works)
+4. Rollback procedure (how to undo if something breaks)
+5. A 1-paragraph "what this actually does for the user" summary at the end
+
+Be concrete and complete. The user is reviewing this BEFORE deciding to approve."""
+
+    print(f"\nGenerating preview plan for recommendation #{rec_id} via Claude CLI...")
+    print("(This may take 30-60 seconds)\n")
+
+    try:
+        env = dict(__import__("os").environ)
+        env["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN_ROOT)
+        proc = subprocess.run(
+            [claude_bin, "-p", prompt],
+            capture_output=True, text=True, timeout=300, cwd=str(PLUGIN_ROOT), env=env,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            print(proc.stdout.strip())
+            print(f"\n---")
+            print(f"Plan generated. To approve and commit this rec, run: approve {rec_id}")
+        else:
+            print(f"Claude CLI error: {(proc.stderr or '').strip()[:500]}")
+    except Exception as e:
+        print(f"Failed to invoke Claude CLI: {e}")
+
+    db.close()
+
+
+def _write_calibration_rows(db, rec_id, verdict):
+    """Write infra_calibration rows for each scoring dimension on approve/reject."""
+    rec = db.execute(
+        "SELECT relevance_score, effort_score, impact_score, urgency_score, risk_score "
+        "FROM infra_recommendations WHERE id = ?",
+        (rec_id,),
+    ).fetchone()
+    if not rec:
+        return
+    dims = [
+        ("relevance", rec["relevance_score"]),
+        ("effort", rec["effort_score"]),
+        ("impact", rec["impact_score"]),
+        ("urgency", rec["urgency_score"]),
+        ("risk", rec["risk_score"]),
+    ]
+    for dim, score in dims:
+        if score is None:
+            continue
+        db.execute(
+            "INSERT INTO infra_calibration (recommendation_id, dimension, model_score, human_verdict) "
+            "VALUES (?, ?, ?, ?)",
+            (rec_id, dim, score, verdict),
+        )
+
+
+def cmd_approve(rec_id, notes=None):
+    """Approve a recommendation: changes status, writes calibration rows."""
+    db = get_db()
+    rec = db.execute(
+        "SELECT id, status, title FROM infra_recommendations WHERE id = ?",
+        (rec_id,),
+    ).fetchone()
+    if not rec:
+        print(f"No recommendation with id {rec_id}")
+        db.close()
+        return
+    if rec["status"] != "pending":
+        print(f"Recommendation #{rec_id} is currently '{rec['status']}', not pending. No change.")
+        db.close()
+        return
+
+    db.execute(
+        "UPDATE infra_recommendations SET status = 'approved', reviewed_by = 'human', "
+        "reviewed_at = datetime('now'), review_notes = ?, updated_at = datetime('now') WHERE id = ?",
+        (notes, rec_id),
+    )
+    _write_calibration_rows(db, rec_id, "approved")
+    db.commit()
+    db.close()
+
+    print(f"Approved #{rec_id}: {rec['title']}")
+    print(f"Next: Tier 3 will generate the implementation plan on its next 'plan' run, "
+          f"OR run 'preview {rec_id}' now to see it immediately.")
+
+
+def cmd_reject(rec_id, reason=None):
+    """Reject a recommendation: changes status, writes calibration rows."""
+    db = get_db()
+    rec = db.execute(
+        "SELECT id, status, title FROM infra_recommendations WHERE id = ?",
+        (rec_id,),
+    ).fetchone()
+    if not rec:
+        print(f"No recommendation with id {rec_id}")
+        db.close()
+        return
+    if rec["status"] != "pending":
+        print(f"Recommendation #{rec_id} is currently '{rec['status']}', not pending. No change.")
+        db.close()
+        return
+
+    db.execute(
+        "UPDATE infra_recommendations SET status = 'rejected', reviewed_by = 'human', "
+        "reviewed_at = datetime('now'), review_notes = ?, updated_at = datetime('now') WHERE id = ?",
+        (reason, rec_id),
+    )
+    _write_calibration_rows(db, rec_id, "rejected")
+    db.commit()
+    db.close()
+
+    print(f"Rejected #{rec_id}: {rec['title']}")
+    if reason:
+        print(f"Reason: {reason}")
+
+
+def cmd_defer(rec_id):
+    """Defer a recommendation: status change only, no calibration."""
+    db = get_db()
+    rec = db.execute(
+        "SELECT id, status, title FROM infra_recommendations WHERE id = ?",
+        (rec_id,),
+    ).fetchone()
+    if not rec:
+        print(f"No recommendation with id {rec_id}")
+        db.close()
+        return
+    if rec["status"] != "pending":
+        print(f"Recommendation #{rec_id} is currently '{rec['status']}', not pending. No change.")
+        db.close()
+        return
+
+    db.execute(
+        "UPDATE infra_recommendations SET status = 'deferred', reviewed_by = 'human', "
+        "reviewed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+        (rec_id,),
+    )
+    db.commit()
+    db.close()
+    print(f"Deferred #{rec_id}: {rec['title']}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 infra_evaluator.py [seed|evaluate|plan|calibrate|status]")
+        print("Usage: python3 infra_evaluator.py <command> [args]")
+        print("  Pipeline: seed | evaluate --tier 1|2 | plan | calibrate | status")
+        print("  Review:   list | show <id> | preview <id> | approve <id> [notes] | reject <id> [reason] | defer <id>")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -749,6 +1217,29 @@ if __name__ == "__main__":
         cmd_calibrate()
     elif cmd == "status":
         cmd_status()
+    elif cmd == "list":
+        cmd_list_pending()
+    elif cmd in ("show", "preview", "approve", "reject", "defer"):
+        if len(sys.argv) < 3:
+            print(f"Usage: {cmd} <id>")
+            sys.exit(1)
+        try:
+            rec_id = int(sys.argv[2])
+        except ValueError:
+            print(f"Invalid recommendation id: {sys.argv[2]}")
+            sys.exit(1)
+        if cmd == "show":
+            cmd_show(rec_id)
+        elif cmd == "preview":
+            cmd_preview(rec_id)
+        elif cmd == "approve":
+            notes = " ".join(sys.argv[3:]) if len(sys.argv) > 3 else None
+            cmd_approve(rec_id, notes)
+        elif cmd == "reject":
+            reason = " ".join(sys.argv[3:]) if len(sys.argv) > 3 else None
+            cmd_reject(rec_id, reason)
+        elif cmd == "defer":
+            cmd_defer(rec_id)
     else:
         print(f"Unknown command: {cmd}")
         sys.exit(1)

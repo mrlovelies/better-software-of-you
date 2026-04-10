@@ -490,17 +490,28 @@ def _expand_standalone_note(conn, node: Node, breadth: int) -> list:
     # Tag-based proximity: find other notes that share at least one tag.
     # This is one of loci's most distinctive moves — it connects notes
     # by concept, not by foreign key.
-    tags = _parse_tag_list(d.get("tags"))
-    if tags:
-        # Build OR clause across tags. Cap to first few tags to avoid explosion.
-        tag_subset = tags[:5]
-        clauses = " OR ".join(["tags LIKE ?" for _ in tag_subset])
-        params = [f"%{t}%" for t in tag_subset]
-        for row in _query(conn, "standalone_notes",
-            f"SELECT * FROM standalone_notes WHERE id != ? AND ({clauses}) LIMIT ?",
-            (node.entity_id, *params, breadth)):
-            out.append(Node("standalone_note", row["id"], row, nd,
-                            "standalone_note.tags (shared)", parent))
+    #
+    # We CANNOT use `tags LIKE '%foo%'` here because tags is a JSON or CSV
+    # text field — substring matching would map "learning" → "learning-science",
+    # "machine-learning", "unlearning" and inflate the neighborhood with
+    # plausible-looking-but-wrong concept links. The tag walk is supposed
+    # to be loci's killer feature; it has to use exact set intersection.
+    own_tags = set(_parse_tag_list(d.get("tags")))
+    if own_tags:
+        candidates = _query(conn, "standalone_notes",
+            "SELECT * FROM standalone_notes WHERE id != ? "
+            "AND tags IS NOT NULL AND tags != '' "
+            "ORDER BY pinned DESC, created_at DESC",
+            (node.entity_id,))
+        matched = 0
+        for cand in candidates:
+            if matched >= breadth:
+                break
+            cand_tags = set(_parse_tag_list(cand.get("tags")))
+            if own_tags & cand_tags:
+                out.append(Node("standalone_note", cand["id"], cand, nd,
+                                "standalone_note.tags (shared)", parent))
+                matched += 1
 
     return out
 

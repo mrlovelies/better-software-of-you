@@ -1,0 +1,316 @@
+{
+  "version": "1.0",
+  "description": "Loci layer A/B/C benchmark prompt set. 17 prompts, 5 buckets, every prompt anchored to a checkable fact in the local SoY DB state at the time of authoring (2026-04-10). Each entry has a 'gold' object with facts the answer should contain, optional honest_answer_notes for sparse-data prompts, and optional negative_signals for hallucination detection. The 'expected_arm_gradient' field is a hint to the judge about whether arms should differ on this prompt — it is NOT used to weight scoring, only to flag prompts where the empirical gradient diverges sharply from the design hypothesis.",
+  "authored_at": "2026-04-10",
+  "db_snapshot_notes": {
+    "contacts": 33,
+    "projects": 16,
+    "decisions": 40,
+    "notes": 20,
+    "interactions": 5,
+    "transcripts": 16,
+    "journal_entries_past_week": 0,
+    "known_data_quality_issues": [
+      "Duplicate James Andrews contact: id 7 (James Andrews Talent Services) and id 9 (James Andrews VO), both with email james@jamesandrewsvo.com",
+      "16 voice call transcripts from 2026-04-09 with no summaries, durations, or participant_names populated",
+      "Journal empty for the 7 days preceding 2026-04-10"
+    ]
+  },
+  "prompts": [
+    {
+      "id": "R1",
+      "bucket": "recall",
+      "prompt": "What payment provider did I decide to use for The Grow App, and why?",
+      "gold": {
+        "facts": [
+          "Stripe was chosen over Shopify",
+          "Decision logged as decision id 3 on 2026-03-02",
+          "Linked to The Grow App project (project id 1) and Jessica Martin (contact id 1)",
+          "An honest answer either includes the rationale from the decision record or states that the rationale field doesn't contain detail beyond the choice itself"
+        ],
+        "negative_signals": [
+          "Inventing a rationale not present in the database (e.g., specific Shopify limitations not mentioned in the decision record)",
+          "Naming any provider other than Stripe"
+        ]
+      },
+      "expected_arm_gradient": "low",
+      "design_notes": "Calibration baseline. Single decision lookup with rationale. All 3 arms should answer this identically. If any arm fails, something is structurally broken — investigate before trusting other results."
+    },
+    {
+      "id": "R2",
+      "bucket": "recall",
+      "prompt": "What did I decide about model selection for ARIA, and why?",
+      "gold": {
+        "facts": [
+          "Decision id 12 (2026-03-08): gemma3:4b over gemma3:12b",
+          "Decision id 13 (2026-03-08): Ollama serial request queue",
+          "Both decisions tied to the ARIA project (project id 205)",
+          "Other ARIA decisions in the same window touch related infrastructure (id 8 Companion server over sql.js/WASM, id 9 Streaming generation mandatory, id 10 Conflict detection threshold at 0.5, id 11 Embed fact details not full threads) — surfacing these as related context is valid but not required"
+        ],
+        "negative_signals": [
+          "Inventing performance numbers or benchmarks not in the decision record",
+          "Confusing ARIA decisions with The Grow App or other projects"
+        ]
+      },
+      "expected_arm_gradient": "low",
+      "design_notes": "Multi-decision retrieval scoped to one project. Tests whether loci over-fetches by walking too far from the starting node. Loci's enrichment with related ARIA decisions is acceptable; bringing in unrelated project decisions is over-fetch."
+    },
+    {
+      "id": "R3",
+      "bucket": "recall",
+      "prompt": "Do I have James Andrews' current email?",
+      "gold": {
+        "facts": [
+          "Email: james@jamesandrewsvo.com",
+          "TWO contact records resolve to this email: id 7 (James Andrews Talent Services, VO Coach / Demo Producer) and id 9 (James Andrews VO, VO Demo Producer)",
+          "An honest answer flags the duplicate and notes that both records share the same email"
+        ],
+        "negative_signals": [
+          "Returning only one record without acknowledging the duplicate",
+          "Inventing a different email address"
+        ]
+      },
+      "expected_arm_gradient": "medium",
+      "design_notes": "Tests entity resolution under duplicate records. Flat search returns both rows; loci should ideally collapse them or explicitly flag the duplicate. This is also a data quality probe — the duplicate is a real issue worth surfacing."
+    },
+    {
+      "id": "R4",
+      "bucket": "recall",
+      "prompt": "Remind me where things stand with Jessica on The Grow App before I reply to her last email.",
+      "gold": {
+        "facts": [
+          "Most recent interaction: id 7, inbound email on 2026-04-10",
+          "Paywall scope refined: Shop tab + profiles + cart paywalled, News/About/Membership purchase free",
+          "Two new asks from Jessica: (1) ability to share curated external gardening videos to the News feed (admin-only vs. any member is open), (2) confirmed paywall scope above",
+          "Jessica is working on the business plan this weekend and will send updated website framework doc for the July pitch",
+          "Possible EY grant mentioned to pay Alex a salary",
+          "Personal context: Jessica's mom is in chemo at Sunnybrook this week, doing well this round",
+          "Linked decision: id 41 (2026-04-10, paywall scope refined) — Shop tab paywalled, News/About/Membership free",
+          "Other Grow App decisions on file: Stripe over Shopify (id 3), trust-based auth (id 1), defer item restrictions by postal code (id 4), defer priority notifications (id 2), open messaging no friend requests (id 7), Vercel + GoDaddy (id 5)"
+        ]
+      },
+      "expected_arm_gradient": "medium",
+      "design_notes": "Realistic prep prompt anchored to a real recent artifact. Arm A returns the email row only; Arm B (get_profile) returns the full Jessica neighborhood; Arm C should match B and possibly enrich with the linked decision and the personal context surfacing. The personal context (mom in chemo) is in the email summary — surfacing it is good prep behavior, not over-fetching."
+    },
+    {
+      "id": "P1",
+      "bucket": "prep",
+      "prompt": "I'm about to record VO with Elana — what should I have in mind?",
+      "gold": {
+        "facts": [
+          "Project: elana-dunkelman-vo (id 212), status active, priority high",
+          "Contact: Elana Dunkelman (id 8), Actor / Writer at ACTRA Toronto, email elanadunkelman@gmail.com",
+          "ZERO logged interactions with Elana",
+          "ZERO logged decisions on the elana-dunkelman-vo project",
+          "ZERO transcripts involving Elana"
+        ],
+        "honest_answer_notes": "This is a sparse-data prompt by design. The correct answer surfaces the project + contact and EXPLICITLY flags the data gap rather than fabricating context. Saying 'limited data — only the project and contact record exist' is the right move."
+      },
+      "expected_arm_gradient": "medium",
+      "design_notes": "Sparse-data prep test. Measures whether arms hallucinate when the neighborhood is thin. The honest answer is short. A long, confident answer here is a hallucination warning sign — the judge should penalize fabricated session prep."
+    },
+    {
+      "id": "P2",
+      "bucket": "prep",
+      "prompt": "Prep me for picking up work on Specsite tomorrow.",
+      "gold": {
+        "facts": [
+          "Project: Specsite (id 206), status active",
+          "Eight decisions on file: Templates over AI-generated HTML (id 24, 2026-02-01), Places API New over legacy (id 27, 2026-02-01), Python over Node for pipeline (id 30, 2026-02-01), 5 design token presets + geographic deconfliction (id 25, 2026-02-10), Cloudflare D1 for deployment (id 26, 2026-02-15), Reviews 4+ stars only on display (id 28, 2026-02-20), E-commerce disqualification (id 29, 2026-02-25), Single-page static HTML no framework (id 31, 2026-03-06)",
+          "Cross-content link: Note id 25 (AloneinaBar Repo: better-websites) describes the same pipeline concept and is tagged 'specsite' — Specsite IS the better-websites pipeline as productized for Kerry's AloneinaBar org"
+        ]
+      },
+      "expected_arm_gradient": "high",
+      "design_notes": "Project-centered prep with a tag-based cross-content link. Arms A and B return the decisions list. Arm C should additionally pull the better-websites note via tag/concept proximity. This is the cleanest test of whether loci can do tag-based traversal beyond foreign-key joins."
+    },
+    {
+      "id": "P3",
+      "bucket": "prep",
+      "prompt": "Have I actually followed up with anyone at CESD or Buchwald recently?",
+      "gold": {
+        "facts": [
+          "ZERO interactions logged with any contact at CESD or Buchwald",
+          "CESD contacts on file: agency itself (id 10), Billy Collura (id 11, Senior VP Voice-Over Division), Marla Weber-Green (id 12, Animation Agent), Christian Sparks (id 13, Games Agent)",
+          "Buchwald contacts on file: agency itself (id 26), Pamela Goldman (id 27, Director of Animation), Katherine Ryan (id 28, VO Agent NY)",
+          "The honest answer is 'no follow-ups logged with anyone at either agency' — and surfaces the named contacts at each so Alex can act on the gap"
+        ],
+        "honest_answer_notes": "This is a negative-space prompt. The right answer articulates emptiness with the right context. A bad answer either says 'I don't know' (uninformative) or fabricates an interaction."
+      },
+      "expected_arm_gradient": "medium",
+      "design_notes": "Tests company → members → activity traversal that finds emptiness. Realistic Alex question. Loci should walk the company's contact list and report the gap. Flat retrieval can answer this if it queries interactions filtered by company-affiliated contacts, which most search implementations don't do automatically."
+    },
+    {
+      "id": "P4",
+      "bucket": "prep",
+      "prompt": "What's fallen off my radar in the last two weeks?",
+      "gold": {
+        "facts": [
+          "16 voice call transcripts from 2026-04-09 (ids 1-16) with no summaries, durations, or participant_names populated — unprocessed",
+          "Journal entries: zero in the past 7 days",
+          "Two inbound voice calls 2026-04-09 from caller +14167717490 (interactions 5, 6) — one was a 7s aborted call, one was a 57s booking with 'Carrie' for 2026-04-10 at 2pm — the booking has no follow-up scheduled and no contact record was created for Carrie",
+          "High-priority active projects with no recent activity: us-vo-agent-pursuit (id 213, no interactions or decisions logged), elana-dunkelman-vo (id 212, no activity), ARIA (id 205, last decision 2026-03-08)",
+          "An honest answer prioritizes — not all of these are equally 'fallen off'"
+        ]
+      },
+      "expected_arm_gradient": "high",
+      "design_notes": "Negative-space, multi-source assembly. Realistic operator question. Arm A struggles because there's no temporal cross-module aggregation tool. Arm B same. Arm C should walk recent activity rates per project and report the gaps. The 'Carrie booking with no follow-up' is a particularly nice signal — it's a real action item buried in transcript-adjacent data."
+    },
+    {
+      "id": "C1",
+      "bucket": "connection",
+      "prompt": "What threads connect my Reprise work to my BATL work?",
+      "gold": {
+        "facts": [
+          "Both projects share a 'private intelligence layer' framing",
+          "Note id 17 (BATL Lane Command — private ops intelligence layer) describes owner-only metrics, dashboards, revenue/lane/booking analytics — explicitly NOT for the public app",
+          "Note id 16 (Daily metrics tracking & revenue dashboards) and Note id 17 are about BATL's internal-facing intelligence layer",
+          "Note id 15 (Cadence — competitive landscape analysis) covers the same dashboarding framing for Reprise",
+          "Note id 14 (Cadence — music as learning environment signal) treats the operator/user as the privileged consumer of cross-source aggregated signal — same shape as the BATL ops layer",
+          "Both projects have an 'ops intelligence' layer distinct from the public-facing product",
+          "An honest answer identifies the shared 'private intelligence layer for the operator' pattern, not just listing the notes side by side"
+        ]
+      },
+      "expected_arm_gradient": "high",
+      "design_notes": "Loci's home turf. Cross-project tag-only proximity — flat SQL literally cannot traverse this because there's no FK linking the projects. Arm A returns nothing useful. Arm B same (get_profile is contact-centered, doesn't reach project-to-project threads). Arm C should walk both project neighborhoods via shared notes/tags and find the conceptual overlap. PROTECT this prompt — it's the clearest signal in the set."
+    },
+    {
+      "id": "C2",
+      "bucket": "connection",
+      "prompt": "Are there any open or unresolved questions about The Grow App's payment flow?",
+      "gold": {
+        "facts": [
+          "Closed decisions: Stripe over Shopify (id 3, decided), trust-based auth (id 1, decided), defer item restrictions by postal code (id 4, decided), defer priority notifications (id 2, decided), Vercel + GoDaddy hosting (id 5, decided)",
+          "Newest decision: id 41 (2026-04-10) — paywall scope refined to Shop tab + profiles + cart paywalled, News/About/Membership free",
+          "The Apr 10 inbound email (interaction id 7) discusses the refined paywall scope and confirms it",
+          "The IMPLEMENTATION of the refined paywall scope is the live open thread — the decision is logged but no follow-up tasks or implementation notes exist yet",
+          "Separate open thread mentioned in the same email: possible EY grant to pay Alex a salary (this affects the project economics but isn't strictly payment-flow)",
+          "An honest answer distinguishes 'closed decisions' from 'open implementation work' rather than treating every decision row as resolved"
+        ]
+      },
+      "expected_arm_gradient": "medium",
+      "design_notes": "Sara's 'best-designed prompt' from the panel. Status-aware traversal across decisions and recent emails. Tests whether arms can mix structural traversal with attribute filtering and recognize that 'decided' doesn't mean 'shipped'. The Apr 10 email is the key piece — it's where the open implementation thread lives."
+    },
+    {
+      "id": "C3",
+      "bucket": "connection",
+      "prompt": "What's the relationship between my axe throwing job and the BATL Lane Command project?",
+      "gold": {
+        "facts": [
+          "Alex works at BATL Axe Throwing as a tipped employee (per user_profile / identity records)",
+          "BATL Lane Command (project id 2) is the ops/scoring infrastructure being built FOR that same venue",
+          "The relationship is implicit in user_profile — there is NO project.client_id FK linking the project to a contact or company representing BATL",
+          "An honest answer surfaces both pieces and notes that the connection lives in user_profile, not in the project schema"
+        ]
+      },
+      "expected_arm_gradient": "medium",
+      "design_notes": "Tests whether the user themselves is in the loci graph. Implicit knowledge — Alex works at BATL Axe Throwing, BATL Lane Command is the ops dashboard for that venue, but no FK links them. Arm A misses entirely (no JOIN path to user_profile). Arm B same. Arm C only wins if the loci layer treats user_profile rows as nodes in the graph. If neither arm answers this well, that's its own finding — the answer is 'loci needs to model the user as a first-class node'."
+    },
+    {
+      "id": "C4",
+      "bucket": "connection",
+      "prompt": "Have I been talking with anyone at Buchwald or DDO about animation work?",
+      "gold": {
+        "facts": [
+          "ZERO interactions logged with anyone at either agency",
+          "Buchwald has Pamela Goldman (id 27, Director of Animation) — animation specialist on file but no logged contact",
+          "Buchwald also has Katherine Ryan (id 28, VO Agent NY) — not animation-specific",
+          "DDO has Julie Gudz (id 17, LA Adult VO Agent) — not animation-specific",
+          "DDO does not appear to have a named animation specialist on file",
+          "An honest answer notes the gap and identifies Pamela Goldman as the animation-relevant contact at Buchwald"
+        ]
+      },
+      "expected_arm_gradient": "medium",
+      "design_notes": "Company → role-filtered members → activity (empty). Tests structural traversal with attribute filter on the role field. Realistic question — Alex is pursuing agencies and would naturally ask this kind of role-scoped follow-up question."
+    },
+    {
+      "id": "S1",
+      "bucket": "synthesis",
+      "prompt": "Why did I rename Cadence to Reprise?",
+      "gold": {
+        "facts": [
+          "Note id 18 (2026-03-15): Cadence renamed to Reprise — naming decision",
+          "Reason: Cadence Design Systems ($85B NASDAQ company) has aggressive trademark enforcement",
+          "Additional reason: Uber's Cadence framework conflict",
+          "Optional enrichment (loci-favorable, not required): subsequent product evolution under the new name — Reprise Native App Architecture (note 20, 2026-03-17), the friend model design principle (note 32, 2026-04-10), competitive landscape analysis (note 15)"
+        ]
+      },
+      "expected_arm_gradient": "low",
+      "design_notes": "Single checkable fact + rationale. All arms find the rename note via search. Loci's enrichment with subsequent product evolution is the gradient — does Arm C connect the rename → product vision evolution? This is the lightest synthesis prompt — the rename fact itself is unambiguous, the gradient is in what gets surfaced alongside it."
+    },
+    {
+      "id": "S2",
+      "bucket": "synthesis",
+      "prompt": "Where am I most likely to be overcommitting right now based on what's active?",
+      "gold": {
+        "facts": [
+          "Five high-priority active projects: The Grow App (id 1, target 2026-07-01), us-vo-agent-pursuit (id 213), Reprise (id 210), ARIA (id 205), elana-dunkelman-vo (id 212)",
+          "The Grow App has the only explicit deadline (2026-07-01) and an active client relationship (Jessica Martin) with recent inbound asks",
+          "us-vo-agent-pursuit has zero outreach logged across 30+ agency contacts on file — silent drift risk",
+          "ARIA, Reprise, and elana-dunkelman-vo are solo dev work — lower coordination overhead, lower drift cost",
+          "The honest answer identifies The Grow App as the most likely overcommit (deadline + external coordination) and us-vo-agent-pursuit as the most likely silent drift (high priority, zero activity)",
+          "A weaker answer just lists the high-priority projects without ranking them"
+        ]
+      },
+      "expected_arm_gradient": "medium",
+      "design_notes": "Devon flagged as realistic, Sara said it needed gold; here it is. Tests project + priority + activity-rate cross-reference. Arm A lists projects. Arm B same. Arm C should pull recent activity rates per project to identify the silent ones. The 'silent drift' framing is the loci-favorable insight — it requires walking from project → activity → recency, not just listing projects."
+    },
+    {
+      "id": "S3",
+      "bucket": "synthesis",
+      "prompt": "Have my conversations with Kerry about Reprise influenced any decisions or notes I've made since?",
+      "gold": {
+        "facts": [
+          "Kerry feedback: interactions 1 and 2 (both 2026-03-18) — 'Why do I need it: lead with outcome not features' and 'resource load on system/subscription'",
+          "Reprise notes BEFORE Kerry's feedback (not influenced): note 19 Learning module clarification (2026-03-15), note 20 Native App Architecture (2026-03-17), note 18 Cadence renamed to Reprise (2026-03-15)",
+          "Reprise notes ON the same day (not directly influenced): note 21 Razer Cron Setup (2026-03-18, technical)",
+          "Reprise notes AFTER Kerry's feedback that COULD be connected: note 30 Reprise product vision — cognitive offloading counter-tool (2026-04-10) directly addresses 'lead with outcome not features' by reframing Reprise around an outcome (cognitive fitness), not features",
+          "Note 32 (Reprise design principle — the friend model) and note 31 (SoY loci layer) were both saved 2026-04-10 from a Discord conversation that happened the night before — adjacent in time but not Kerry-causal",
+          "The honest answer acknowledges temporal direction (Kerry feedback was Mar 18, the clearest causal candidate is the Apr 10 product vision note 23 days later) and avoids overclaiming influence on notes that predate the feedback"
+        ]
+      },
+      "expected_arm_gradient": "high",
+      "design_notes": "Temporal-causal traversal across types. Hard prompt. Most loci-favorable in the set because it requires: contact → interactions → time window → adjacent notes by topic → causal inference. Arm A returns the Kerry interactions and stops. Arm B same. Arm C should walk to nearby Reprise notes by date and report which ones plausibly reflect the feedback. The judge should reward answers that distinguish 'temporally adjacent' from 'causally connected'."
+    },
+    {
+      "id": "A1",
+      "bucket": "adversarial",
+      "prompt": "What did Kerry think of the Reprise demo I showed her last week?",
+      "gold": {
+        "facts": [
+          "NO SUCH DEMO EXISTS in the database",
+          "Last Kerry interaction was 2026-03-18 (24 days before the prompt date 2026-04-10), not 'last week'",
+          "Kerry gave feedback on PITCH MATERIALS, not a demo (interactions 1 and 2)",
+          "The correct answer says 'no record of a recent demo' or equivalent — refusing to fabricate"
+        ],
+        "negative_signals": [
+          "Inventing Kerry's response to a demo that doesn't exist",
+          "Conflating the Mar 18 pitch material feedback with a 'demo last week'",
+          "Fabricating a date for a fictional demo",
+          "Any answer that contains 'Kerry said' or 'Kerry thought' followed by content not in interactions 1 or 2"
+        ]
+      },
+      "expected_arm_gradient": "unknown",
+      "design_notes": "Direct hallucination resistance test. The judge should mark any non-refusal as a hallucination, regardless of arm. This prompt measures a failure mode (fabrication) rather than a capability gradient — all arms SHOULD refuse, and any that don't is a problem worth flagging in the report."
+    },
+    {
+      "id": "A2",
+      "bucket": "adversarial",
+      "prompt": "Where did things land with that client whose mom is going through chemo?",
+      "gold": {
+        "facts": [
+          "Resolves to: Jessica Martin (contact id 1) / The Grow App project (id 1)",
+          "The chemo mention is in interaction id 7 summary (2026-04-10 inbound email)",
+          "Where things landed: paywall scope refined and confirmed (Shop tab + profiles + cart paywalled, News/About/Membership free), Jessica is working on her business plan this weekend, July pitch upcoming, possible EY grant to pay Alex a salary, mom is doing well this round of chemo at Sunnybrook",
+          "The honest answer first identifies Jessica/Grow App as the client (entity resolution) and then summarizes the recent state"
+        ],
+        "negative_signals": [
+          "Failing to identify Jessica Martin",
+          "Identifying the wrong contact",
+          "Returning 'no contact found' when the descriptor is in the database"
+        ]
+      },
+      "expected_arm_gradient": "high",
+      "design_notes": "Maya's contamination test — pronoun + descriptor instead of a clean proper noun. Tests entity resolution by indirect reference. Arm A struggles because LIKE search on 'chemo' will find the email summary but no contact join. Arm B might struggle (get_profile needs a contact_id, not a descriptor). Arm C only wins if the loci traversal can semantically resolve descriptors to entities. This is a hard test and a high-value finding either way — if no arm passes, that's a known limitation worth documenting; if Arm C passes, it's a strong loci win."
+    }
+  ]
+}

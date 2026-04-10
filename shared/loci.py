@@ -171,13 +171,23 @@ def _extract_keywords(query: str) -> list:
     return out
 
 
-def find_seeds(conn: sqlite3.Connection, query: str, limit_per_table: int = 3) -> list:
+def find_seeds(
+    conn: sqlite3.Connection,
+    query: str,
+    limit_per_table: int = 3,
+    max_seeds: int = 10,
+) -> list:
     """Find starting entities for a query via flat LIKE search across whitelisted tables.
 
     Tokenizes the query into keywords (stopwords removed), searches each
-    relevant table for any keyword match, and dedupes by (entity_type, id).
-    Returns up to limit_per_table * num_tables nodes — the caller should
-    cap if it wants fewer.
+    relevant table for any keyword match, dedupes by (entity_type, id),
+    and caps the total at max_seeds so the BFS budget isn't consumed
+    entirely by seed collection.
+
+    The cap matters: a multi-keyword query against 6 tables can match
+    dozens of rows, and if all of them become seeds the traversal has
+    no room left to walk outward. The whole point of loci is the walk,
+    not the seed count.
     """
     keywords = _extract_keywords(query) or [query]
     found: dict = {}  # key -> Node
@@ -223,7 +233,12 @@ def find_seeds(conn: sqlite3.Connection, query: str, limit_per_table: int = 3) -
             (pat, pat, pat, limit_per_table)):
             add("email", row)
 
-    return list(found.values())
+        if len(found) >= max_seeds:
+            break
+
+    # Final cap — if we're still over (e.g., one keyword pulled many),
+    # trim to the first max_seeds in insertion order.
+    return list(found.values())[:max_seeds]
 
 
 # ─── Edge expansion ──────────────────────────────────────────────────
@@ -560,6 +575,7 @@ def assemble_context(
     max_depth: int = 2,
     max_breadth_per_node: int = 5,
     max_total_nodes: int = 60,
+    max_seeds: int = 10,
 ) -> Neighborhood:
     """Build a neighborhood graph by walking outward from seeds via BFS.
 
@@ -570,6 +586,9 @@ def assemble_context(
         max_depth: How many edge-hops to walk from each seed.
         max_breadth_per_node: Max children to expand per node per edge type.
         max_total_nodes: Hard cap on total nodes in the neighborhood.
+        max_seeds: Cap on number of starting seeds. Without this cap, a
+            multi-keyword query can fill the entire node budget with seeds
+            and leave no room for the walk.
 
     Returns:
         Neighborhood with seeds, all visited nodes, and traversal stats.
@@ -577,7 +596,7 @@ def assemble_context(
     conn = _open(db_path)
     try:
         if seeds is None:
-            seeds = find_seeds(conn, query)
+            seeds = find_seeds(conn, query, max_seeds=max_seeds)
 
         nodes: dict = {}
         for s in seeds:

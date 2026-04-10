@@ -256,3 +256,74 @@ When generating HTML dashboards or views:
 - Use bullet points for summaries.
 - Dates in human-readable format ("3 days ago", "next Tuesday").
 - When presenting data, focus on what matters — don't dump every field.
+
+
+---
+
+## Signal Harvester Pipeline
+
+The signal harvester discovers product opportunities from Reddit, evaluates them, and can auto-build MVPs.
+
+### Looking Up Items
+
+When someone asks about a signal or forecast by ID (e.g. "tell me about signal #72" or "review forecast #50"):
+
+```bash
+DB="$HOME/.local/share/software-of-you/soy.db"
+
+# Signal by ID (with triage scores)
+sqlite3 "$DB" "SELECT s.id, s.subreddit, s.upvotes, s.extracted_pain, s.industry, s.raw_text, t.composite_score, t.solo_viability_score, t.automation_potential_score, t.ops_burden_score, t.market_size_score, t.monetization_score, t.build_complexity_score, t.existing_solutions_score, t.verdict FROM harvest_signals s LEFT JOIN harvest_triage t ON t.signal_id = s.id WHERE s.id = <ID>;"
+
+# Forecast by ID
+sqlite3 "$DB" "SELECT id, title, description, composite_score, autonomy_score, status, estimated_mrr_low, estimated_mrr_high, revenue_model, build_type, target_audience FROM harvest_forecasts WHERE id = <ID>;"
+
+# Discussion history
+sqlite3 "$DB" "SELECT author, content, revised_scores, revision_rationale, created_at FROM harvest_discussions WHERE entity_type = '<signal|forecast>' AND entity_id = <ID> ORDER BY created_at;"
+
+# Pipeline stats
+sqlite3 "$DB" "SELECT verdict, COUNT(*) FROM harvest_triage GROUP BY verdict;"
+
+# Top pending signals
+sqlite3 "$DB" "SELECT t.signal_id, t.composite_score, t.solo_viability_score, t.ops_burden_score, substr(s.extracted_pain, 1, 80), s.subreddit FROM harvest_triage t JOIN harvest_signals s ON s.id = t.signal_id WHERE t.verdict = 'pending' ORDER BY t.composite_score DESC LIMIT 10;"
+
+# Approved forecasts
+sqlite3 "$DB" "SELECT id, title, composite_score, status FROM harvest_forecasts WHERE status = 'approved' ORDER BY composite_score DESC;"
+
+# Build status
+sqlite3 "$DB" "SELECT project_name, status, visual_qa_verdict, visual_qa_score FROM harvest_builds ORDER BY created_at DESC LIMIT 5;"
+```
+
+### Score Dimensions (1-10 each)
+
+- **market_size_score**: How many people have this problem
+- **monetization_score**: Will people pay for a solution
+- **build_complexity_score**: 10=trivial, 1=extremely complex
+- **existing_solutions_score**: 10=unserved gap, 1=many good solutions
+- **soy_leaf_fit_score**: Fits as a SoY module
+- **solo_viability_score**: Can ONE person build and run this at scale
+- **automation_potential_score**: 10=set-and-forget, 1=constant human intervention
+- **ops_burden_score**: 10=minimal maintenance, 1=will consume your life
+
+### Discussion and Score Revision
+
+Add discussion entries to signals/forecasts. Include score revisions when the discussion warrants changing a score:
+
+```bash
+sqlite3 "$DB" "INSERT INTO harvest_discussions (entity_type, entity_id, author, source, content, revised_scores, revision_rationale) VALUES ('<signal|forecast>', <ID>, '<author_name>', 'discord', '<discussion content>', '<json of revised scores or NULL>', '<why scores changed>');"
+```
+
+After revising scores, recalculate composite:
+```bash
+# The dashboard API handles this automatically, but for CLI:
+# Composite = weighted average: market(0.15) + money(0.20) + build(0.10) + gap(0.10) + solo(0.15) + auto(0.10) + ops(0.10) + soy_fit(0.10)
+```
+
+### Actions
+
+- Approve signal: `UPDATE harvest_triage SET verdict = 'approved', human_reviewed = 1, human_notes = '<notes>', updated_at = datetime('now') WHERE signal_id = <ID>;`
+- Reject signal: `UPDATE harvest_triage SET verdict = 'rejected', human_reviewed = 1, human_notes = '<reason>', updated_at = datetime('now') WHERE signal_id = <ID>;`
+- Approve forecast (triggers build): `UPDATE harvest_forecasts SET status = 'approved', human_notes = '<notes>', updated_at = datetime('now') WHERE id = <ID>;`
+
+### Dashboard
+
+Harvester dashboard: `https://soy.tail2272ce.ts.net:10000` — each signal/forecast has a clickable ID that opens a detail view with discussion panel.

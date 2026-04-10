@@ -55,6 +55,7 @@ if _BENCH_DIR not in sys.path:
 
 import arms  # noqa: E402
 import judge  # noqa: E402
+import report  # noqa: E402
 
 
 # ─── Configuration ───────────────────────────────────────────────────
@@ -480,6 +481,11 @@ def main() -> None:
     p_judge.add_argument("--rerun", action="store_true",
                          help="Re-judge entries that already have scores")
 
+    p_report = sub.add_parser("report", help="Generate markdown report for a run")
+    p_report.add_argument("run_id", help="The run ID to report on")
+    p_report.add_argument("--output", default=None,
+                          help="Output path (default: benchmarks/loci/report-<run_id>.md)")
+
     args = parser.parse_args()
 
     if args.cmd == "run":
@@ -504,6 +510,14 @@ def main() -> None:
             judge_model=args.judge_model,
             rerun_existing=args.rerun,
         )
+    elif args.cmd == "report":
+        path = report.generate_report(
+            run_id=args.run_id,
+            results_db_path=RESULTS_DB_PATH,
+            prompts_path=PROMPTS_PATH,
+            output_path=args.output,
+        )
+        print(f"Report written to {path}")
 
 
 if __name__ == "__main__":

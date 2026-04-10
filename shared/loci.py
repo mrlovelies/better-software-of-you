@@ -195,23 +195,30 @@ def find_seeds(
 ) -> list:
     """Find starting entities for a query via flat LIKE search across whitelisted tables.
 
-    Tokenizes the query into keywords (stopwords removed), searches each
-    relevant table for any keyword match, dedupes by (entity_type, id),
-    and caps the total at max_seeds so the BFS budget isn't consumed
-    entirely by seed collection.
+    Tokenizes the query into keywords (stopwords removed), searches every
+    keyword across every table, then ranks results by how many distinct
+    keywords each entity matched. Returns the top `max_seeds` by match count.
 
-    The cap matters: a multi-keyword query against 6 tables can match
-    dozens of rows, and if all of them become seeds the traversal has
-    no room left to walk outward. The whole point of loci is the walk,
-    not the seed count.
+    Why match-count ranking:
+        The previous implementation iterated by keyword and broke early when
+        the seed budget filled, so generic keywords like "things" or "land"
+        consumed the budget before specific keywords like "chemo" were ever
+        searched. A2 (the chemo descriptor prompt) failed across all arms
+        because of this — interaction id 7 contained "mom is in chemo" but
+        was never seeded. Match-count ranking surfaces multi-keyword matches
+        first, which naturally favors entities that the query actually
+        describes over entities that share generic vocabulary.
     """
     keywords = _extract_keywords(query) or [query]
-    found: dict = {}  # key -> Node
+
+    rows_by_key: dict = {}    # (entity_type, id) -> row dict
+    hits_by_key: dict = {}    # (entity_type, id) -> int (how many distinct keywords matched)
 
     def add(et: str, row: dict) -> None:
         k = (et, row["id"])
-        if k not in found:
-            found[k] = Node(entity_type=et, entity_id=row["id"], data=row, distance=0)
+        if k not in rows_by_key:
+            rows_by_key[k] = row
+        hits_by_key[k] = hits_by_key.get(k, 0) + 1
 
     for kw in keywords:
         pat = f"%{kw}%"
@@ -249,12 +256,17 @@ def find_seeds(
             (pat, pat, pat, limit_per_table)):
             add("email", row)
 
-        if len(found) >= max_seeds:
-            break
-
-    # Final cap — if we're still over (e.g., one keyword pulled many),
-    # trim to the first max_seeds in insertion order.
-    return list(found.values())[:max_seeds]
+    # Rank by keyword match count (desc), with stable tie-break on entity_type, id.
+    # This is the load-bearing change: specific multi-keyword matches now beat
+    # generic single-keyword matches even when the latter were collected first.
+    sorted_keys = sorted(
+        rows_by_key.keys(),
+        key=lambda k: (-hits_by_key[k], k[0], k[1]),
+    )
+    return [
+        Node(entity_type=k[0], entity_id=k[1], data=rows_by_key[k], distance=0)
+        for k in sorted_keys[:max_seeds]
+    ]
 
 
 # ─── Edge expansion ──────────────────────────────────────────────────

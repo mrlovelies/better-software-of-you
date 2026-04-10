@@ -194,31 +194,38 @@ _ARM_A_MAX_TOTAL_PER_TABLE = 10
 
 
 def _flat_search(conn: sqlite3.Connection, query: str) -> dict:
-    """Run flat LIKE search across whitelisted tables. Returns {entity_type: [rows]}."""
+    """Run flat LIKE search across whitelisted tables. Returns {entity_type: [rows]}.
+
+    Same match-count ranking as shared.loci.find_seeds: collect every match
+    across every keyword, score each row by how many distinct keywords it hit,
+    keep the top N per table by hit count. The previous implementation iterated
+    by keyword inside each table and exited early when the per-table cap filled,
+    so generic keywords ate the budget before specific keywords were searched
+    (the find_seeds bug, replicated here in arm A's search).
+    """
     keywords = _extract_keywords(query) or [query]
     by_type: dict = {}
 
     for entity_type, _table, sql in _ARM_A_SEARCH_TABLES:
         # Count placeholders excluding the LIMIT placeholder
         placeholder_count = sql.count("?") - 1
-        seen_ids = set()
-        rows: list = []
+        rows_by_id: dict = {}    # id -> row
+        hits_by_id: dict = {}    # id -> int
 
         for kw in keywords:
-            if len(rows) >= _ARM_A_MAX_TOTAL_PER_TABLE:
-                break
             pat = f"%{kw}%"
-            params = tuple([pat] * placeholder_count + [_ARM_A_LIMIT_PER_KEYWORD_PER_TABLE])
+            params = tuple(
+                [pat] * placeholder_count + [_ARM_A_LIMIT_PER_KEYWORD_PER_TABLE]
+            )
             for row in _query(conn, sql, params):
-                if row["id"] in seen_ids:
-                    continue
-                seen_ids.add(row["id"])
-                rows.append(row)
-                if len(rows) >= _ARM_A_MAX_TOTAL_PER_TABLE:
-                    break
+                rid = row["id"]
+                if rid not in rows_by_id:
+                    rows_by_id[rid] = row
+                hits_by_id[rid] = hits_by_id.get(rid, 0) + 1
 
-        if rows:
-            by_type[entity_type] = rows
+        if rows_by_id:
+            ranked = sorted(rows_by_id.keys(), key=lambda i: (-hits_by_id[i], i))
+            by_type[entity_type] = [rows_by_id[i] for i in ranked[:_ARM_A_MAX_TOTAL_PER_TABLE]]
 
     return by_type
 

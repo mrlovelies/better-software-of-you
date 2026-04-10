@@ -73,6 +73,12 @@ DEFAULT_TEST_HOST = "razer"
 DEFAULT_TEMPERATURE = 0.1
 DEFAULT_MODEL_TIMEOUT = 300  # seconds
 
+# Hard char-budget parity across arms — Diego Reyes' panel finding.
+# Without this, arm C's larger context biases the judge by priors. Set to
+# 0 to disable; we keep both modes available so the user can run with
+# parity for the headline result and without parity for the diagnostic.
+DEFAULT_MAX_CONTEXT_CHARS = 8000
+
 PROMPTS_PATH = os.path.join(_BENCH_DIR, "prompts.json")
 RESULTS_DB_PATH = os.path.join(_BENCH_DIR, "results.db")
 
@@ -216,6 +222,7 @@ def run(
     dry_run: bool = False,
     soy_db: str = DEFAULT_SOY_DB,
     notes: str = None,
+    max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
 ) -> str:
     """Run the benchmark. Returns the run_id for downstream judging/reporting."""
     if not os.path.exists(soy_db):
@@ -271,6 +278,10 @@ def run(
     print(f"Prompts:      {len(prompts)} ({', '.join(p['id'] for p in prompts)})")
     print(f"Arms:         {', '.join(arms_to_run)}")
     print(f"Dry run:      {'YES (no test model calls)' if dry_run else 'no'}")
+    if max_context_chars:
+        print(f"Max context:  {max_context_chars} chars (parity across arms)")
+    else:
+        print(f"Max context:  unlimited (length confound NOT controlled)")
     print(f"SoY DB:       {soy_db}")
     print(f"Results DB:   {RESULTS_DB_PATH}")
     print(f"Total runs:   {total}")
@@ -286,8 +297,8 @@ def run(
         for arm_id in arms_to_run:
             label = f"  [{arm_id}]"
 
-            # Step 1: assemble context via the arm
-            arm_result = arms.run_arm(arm_id, soy_db, prompt)
+            # Step 1: assemble context via the arm (with optional char-budget parity)
+            arm_result = arms.run_arm(arm_id, soy_db, prompt, max_chars=max_context_chars)
             assembly_ms = arm_result.elapsed_ms
 
             if arm_result.error:
@@ -466,6 +477,10 @@ def main() -> None:
                        help="Assemble context but skip test model invocation")
     p_run.add_argument("--soy-db", default=DEFAULT_SOY_DB,
                        help=f"Path to soy.db (default: {DEFAULT_SOY_DB})")
+    p_run.add_argument("--max-context-chars", type=int, default=DEFAULT_MAX_CONTEXT_CHARS,
+                       help=f"Hard char cap on context per arm "
+                            f"(default: {DEFAULT_MAX_CONTEXT_CHARS}, "
+                            f"set to 0 for unlimited)")
     p_run.add_argument("--notes", default="",
                        help="Optional notes attached to the run record")
 
@@ -497,6 +512,7 @@ def main() -> None:
             dry_run=args.dry_run,
             soy_db=args.soy_db,
             notes=args.notes,
+            max_context_chars=args.max_context_chars,
         )
     elif args.cmd == "status":
         status()

@@ -54,11 +54,40 @@ class ArmResult:
     """One arm's output for one prompt."""
     arm_id: str          # "A", "B", or "C"
     prompt_id: str
-    context: str         # the assembled context blob
-    context_chars: int
-    metadata: dict       # arm-specific stats (tables touched, rows returned, etc.)
+    context: str         # the assembled context blob (post-truncation if applied)
+    context_chars: int   # length of `context` after any truncation
+    metadata: dict       # arm-specific stats (tables touched, rows returned,
+                         # plus 'truncated' and 'original_chars' if a char cap was hit)
     elapsed_ms: int
     error: Optional[str] = None
+
+
+def _apply_char_budget(context: str, metadata: dict, max_chars: Optional[int]) -> str:
+    """Truncate context to max_chars if set, recording the truncation in metadata.
+
+    Diego Reyes (panel review) flagged that arm C systematically produces
+    larger context blobs than arms A and B, which biases the judge by priors:
+    a longer context with more named entities will tend to score higher on
+    'completeness' regardless of actual answer quality. The fix is hard
+    char-budget parity across arms — every arm lives within the same envelope.
+
+    Truncation is dumb: keep the first N chars, append a clear marker. Smart
+    per-arm truncation strategies would introduce their own confound (each
+    arm filling its budget differently), so dumb-and-uniform is the right
+    primitive even though it cuts arm C mid-node.
+    """
+    if not max_chars or len(context) <= max_chars:
+        metadata.setdefault("truncated", False)
+        return context
+    original = len(context)
+    truncated = context[:max_chars] + (
+        f"\n\n[context truncated at {max_chars} chars; "
+        f"{original - max_chars} more chars omitted]"
+    )
+    metadata["truncated"] = True
+    metadata["original_chars"] = original
+    metadata["truncated_at"] = max_chars
+    return truncated
 
 
 # ─── Local helpers ───────────────────────────────────────────────────
@@ -238,7 +267,7 @@ def _render_flat(by_type: dict) -> str:
     return "\n\n".join(sections)
 
 
-def run_arm_a(db_path: str, prompt: dict) -> ArmResult:
+def run_arm_a(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> ArmResult:
     """Arm A: flat-only context assembly."""
     start = time.time()
     error = None
@@ -260,6 +289,7 @@ def run_arm_a(db_path: str, prompt: dict) -> ArmResult:
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
 
+    context = _apply_char_budget(context, metadata, max_chars)
     return ArmResult(
         arm_id="A",
         prompt_id=prompt["id"],
@@ -414,7 +444,7 @@ def _render_profile(profile: dict) -> str:
     return "\n".join(lines)
 
 
-def run_arm_b(db_path: str, prompt: dict) -> ArmResult:
+def run_arm_b(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> ArmResult:
     """Arm B: flat search PLUS get_profile-style expansion for any contact found."""
     start = time.time()
     error = None
@@ -452,6 +482,7 @@ def run_arm_b(db_path: str, prompt: dict) -> ArmResult:
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
 
+    context = _apply_char_budget(context, metadata, max_chars)
     return ArmResult(
         arm_id="B",
         prompt_id=prompt["id"],
@@ -465,7 +496,7 @@ def run_arm_b(db_path: str, prompt: dict) -> ArmResult:
 
 # ─── Arm C: loci layer ───────────────────────────────────────────────
 
-def run_arm_c(db_path: str, prompt: dict) -> ArmResult:
+def run_arm_c(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> ArmResult:
     """Arm C: graph traversal via shared.loci.assemble_context."""
     start = time.time()
     error = None
@@ -475,10 +506,11 @@ def run_arm_c(db_path: str, prompt: dict) -> ArmResult:
     try:
         neighborhood = assemble_context(db_path, prompt["prompt"])
         context = render_context(neighborhood)
-        metadata = neighborhood.stats
+        metadata = dict(neighborhood.stats)
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
 
+    context = _apply_char_budget(context, metadata, max_chars)
     return ArmResult(
         arm_id="C",
         prompt_id=prompt["id"],
@@ -499,9 +531,10 @@ ARMS = {
 }
 
 
-def run_arm(arm_id: str, db_path: str, prompt: dict) -> ArmResult:
-    """Run a single arm against a single prompt."""
+def run_arm(arm_id: str, db_path: str, prompt: dict,
+            max_chars: Optional[int] = None) -> ArmResult:
+    """Run a single arm against a single prompt with an optional context char cap."""
     if arm_id not in ARMS:
         raise ValueError(f"Unknown arm: {arm_id}. Valid: {list(ARMS.keys())}")
     _, func = ARMS[arm_id]
-    return func(db_path, prompt)
+    return func(db_path, prompt, max_chars=max_chars)

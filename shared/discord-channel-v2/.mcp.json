@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "soy-discord": {
+      "command": "node",
+      "args": ["./index.js"],
+      "env": {
+        "CLAUDE_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
+      }
+    }
+  }
+}

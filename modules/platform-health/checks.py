@@ -17,8 +17,8 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path.home() / ".local" / "share" / "software-of-you" / "soy.db"
 
 MACHINES = {
-    "razer": {
-        "ip": "100.125.139.126",
+    "soy-1": {
+        "ip": "100.91.234.67",
         "ssh_user": "mrlovelies",
         "ssh_port": 2222,
     },
@@ -36,8 +36,8 @@ MACHINES = {
 def _detect_this_machine() -> str | None:
     """Detect which machine we're running on by hostname."""
     hostname = socket.gethostname().lower()
-    if "uu1kal0" in hostname or hostname == "desktop-uu1kal0" or hostname == "soy":
-        return "razer"
+    if "uu1kal0" in hostname or hostname == "desktop-uu1kal0" or hostname == "soy" or hostname == "soy-1":
+        return "soy-1"
     if "1746h58" in hostname or hostname == "desktop-1746h58" or hostname == "lucy":
         return "lucy"
     if "macbook" in hostname or "macair" in hostname:
@@ -77,9 +77,9 @@ def check_db_integrity() -> dict:
 
 
 def check_processes() -> dict:
-    """Check if soy_server.py and telegram_bot.py are running (Razer only)."""
-    if THIS_MACHINE != "razer":
-        return {"status": "ok", "details": {"skipped": True, "reason": "Not on Razer"}}
+    """Check if soy_server.py and telegram_bot.py are running (soy-1 only)."""
+    if THIS_MACHINE != "soy-1":
+        return {"status": "ok", "details": {"skipped": True, "reason": "Not on soy-1"}}
 
     results = {}
     for proc_name in ["soy_server.py", "telegram_bot.py"]:

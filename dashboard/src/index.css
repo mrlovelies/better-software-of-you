@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #fafaf8;
+  font-size: 16px;
+}
+
+/* Bump up small text throughout the dashboard */
+.text-xs { font-size: 0.8125rem !important; line-height: 1.4 !important; }
+.text-sm { font-size: 0.9375rem !important; line-height: 1.5 !important; }
+.text-\[10px\] { font-size: 0.6875rem !important; }
+.text-\[11px\] { font-size: 0.75rem !important; }

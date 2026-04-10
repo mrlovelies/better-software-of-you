@@ -1,0 +1,59 @@
+{
+  "name": "signal-harvester",
+  "display_name": "Signal Harvester",
+  "version": "0.1.0",
+  "description": "Automated demand-discovery pipeline. Harvests pain-point signals from Reddit and other sources, triages via multi-LLM evaluation, forecasts product opportunities, and self-evolves based on outcomes.",
+  "migration": "044_signal_harvester.sql",
+  "additional_migrations": [
+    "045_harvest_evolution.sql",
+    "046_harvest_forecasts.sql"
+  ],
+  "tables": [
+    "harvest_sources",
+    "harvest_signals",
+    "harvest_triage",
+    "harvest_builds",
+    "harvest_query_stats",
+    "harvest_pattern_stats",
+    "harvest_subreddit_stats",
+    "triage_calibration",
+    "harvest_industry_stats",
+    "harvest_evolution_log",
+    "harvest_forecasts"
+  ],
+  "tools": [
+    "shared/signal_harvester.py",
+    "shared/signal_triage.py",
+    "shared/signal_evolution.py",
+    "shared/signal_forecast.py"
+  ],
+  "commands": [],
+  "standalone_features": [
+    "Reddit pain-point harvesting with regex + targeted search",
+    "Multi-LLM tiered triage (Mistral 7B → Qwen 14B → Claude API)",
+    "Human-in-the-loop approval gate",
+    "Creative product forecasting (pattern, silence, adjacent, upstream, automate)",
+    "Self-evolving query/subreddit/weight optimization",
+    "Autonomy scoring for hands-off product viability",
+    "Non-software product support (physical, service chains, hybrid)"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "project-tracker",
+      "features": ["Approved signals auto-create projects", "Build tracking linked to project milestones"],
+      "description": "Approved harvest signals generate project entries with tasks."
+    },
+    {
+      "requires_module": "crm",
+      "features": ["Kerry Morrison linked as collaborator", "Future: client contacts from shipped products"],
+      "description": "Revenue contacts from shipped products flow into CRM."
+    }
+  ],
+  "infrastructure": {
+    "ollama_host": "http://100.91.234.67:11434",
+    "tier1_model": "mistral:7b",
+    "tier2_model": "qwen2.5:14b",
+    "paperclip_path": "~/agent-eval/paperclip/",
+    "ruflo_path": "~/agent-eval/ruflo/"
+  }
+}

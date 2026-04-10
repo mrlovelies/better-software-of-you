@@ -31,8 +31,8 @@ from datetime import datetime
 PLUGIN_ROOT = os.environ.get("CLAUDE_PLUGIN_ROOT", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(PLUGIN_ROOT, "data", "soy.db")
 
-# Cloudflare config
-CF_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "<REDACTED-CF-TOKEN>")
+# Cloudflare config — must come from environment, never hardcoded
+CF_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 CF_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
 
 # Google Cloud config

@@ -54,6 +54,7 @@ if _BENCH_DIR not in sys.path:
     sys.path.insert(0, _BENCH_DIR)
 
 import arms  # noqa: E402
+import judge  # noqa: E402
 
 
 # ─── Configuration ───────────────────────────────────────────────────
@@ -472,6 +473,13 @@ def main() -> None:
     p_inspect = sub.add_parser("inspect", help="Show all results for a specific run")
     p_inspect.add_argument("run_id", help="The run ID to inspect")
 
+    p_judge = sub.add_parser("judge", help="Judge an existing run with Claude Opus")
+    p_judge.add_argument("run_id", help="The run ID to judge")
+    p_judge.add_argument("--judge-model", default=judge.DEFAULT_JUDGE_MODEL,
+                         help=f"Anthropic model name (default: {judge.DEFAULT_JUDGE_MODEL})")
+    p_judge.add_argument("--rerun", action="store_true",
+                         help="Re-judge entries that already have scores")
+
     args = parser.parse_args()
 
     if args.cmd == "run":
@@ -488,6 +496,14 @@ def main() -> None:
         status()
     elif args.cmd == "inspect":
         inspect(args.run_id)
+    elif args.cmd == "judge":
+        judge.judge_run(
+            run_id=args.run_id,
+            results_db_path=RESULTS_DB_PATH,
+            prompts_path=PROMPTS_PATH,
+            judge_model=args.judge_model,
+            rerun_existing=args.rerun,
+        )
 
 
 if __name__ == "__main__":

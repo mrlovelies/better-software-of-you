@@ -224,6 +224,7 @@ def run(
     soy_db: str = DEFAULT_SOY_DB,
     notes: str = None,
     max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+    model_timeout: int = DEFAULT_MODEL_TIMEOUT,
 ) -> str:
     """Run the benchmark. Returns the run_id for downstream judging/reporting."""
     if not os.path.exists(soy_db):
@@ -329,6 +330,7 @@ def run(
                 test_prompt_text = build_test_prompt(arm_result.context, prompt["prompt"])
                 answer, answer_ms, answer_error = ollama_generate(
                     host_url, test_model, test_prompt_text,
+                    timeout=model_timeout,
                 )
                 if answer_error:
                     print(f" → MODEL ERROR ({answer_ms}ms): {answer_error}")
@@ -482,6 +484,9 @@ def main() -> None:
                        help=f"Hard char cap on context per arm "
                             f"(default: {DEFAULT_MAX_CONTEXT_CHARS}, "
                             f"set to 0 for unlimited)")
+    p_run.add_argument("--timeout", type=int, default=DEFAULT_MODEL_TIMEOUT,
+                       help=f"Per-call test model timeout in seconds "
+                            f"(default: {DEFAULT_MODEL_TIMEOUT})")
     p_run.add_argument("--notes", default="",
                        help="Optional notes attached to the run record")
 
@@ -525,6 +530,7 @@ def main() -> None:
             soy_db=args.soy_db,
             notes=args.notes,
             max_context_chars=args.max_context_chars,
+            model_timeout=args.timeout,
         )
     elif args.cmd == "status":
         status()

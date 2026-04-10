@@ -130,10 +130,19 @@ def _open_db(db_path: str) -> sqlite3.Connection:
 
 
 def _query(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list:
-    """Run a parameterized query. Returns list of dicts. Defensive against schema drift."""
+    """Run a parameterized query. Returns list of dicts.
+
+    Logs schema drift to stderr instead of swallowing silently — see the
+    matching helper in shared/loci.py for the rationale. A silent fallback
+    in a controlled benchmark hides exactly the kind of bug we want to catch.
+    """
     try:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as e:
+        print(
+            f"arms._query: schema drift: {e}\n  query: {sql}\n  params: {params}",
+            file=sys.stderr,
+        )
         return []
 
 

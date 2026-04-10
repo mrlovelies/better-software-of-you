@@ -125,13 +125,29 @@ def _check_table(table: str) -> None:
 
 
 def _query(conn: sqlite3.Connection, table: str, sql: str, params: tuple = ()) -> list:
-    """Run a parameterized query against a whitelisted table. Returns list of dicts."""
+    """Run a parameterized query against a whitelisted table. Returns list of dicts.
+
+    On schema drift (sqlite3.OperationalError), logs to stderr and returns
+    an empty list. The previous behavior was silent swallowing — Maya Chen's
+    panel finding called this out as "the worst possible defensive default in
+    a benchmark," because whole edge classes can vanish without anyone noticing
+    and the stats block will happily report success on a half-broken traversal.
+
+    The benchmark needs to fail loudly on drift. Logging is the minimum bar.
+    Whether to also raise (the alternative Maya suggested) depends on context:
+    for an interactive ad-hoc query you want resilience, for a controlled
+    A/B/C run you want a hard stop. For now we log and continue — the runner
+    captures the resulting empty walk and the report's stats will reflect it.
+    """
     _check_table(table)
     try:
         rows = conn.execute(sql, params).fetchall()
-    except sqlite3.OperationalError:
-        # Table or column may not exist in this schema variant — return empty
-        # rather than crash. Loci is meant to be defensive against drift.
+    except sqlite3.OperationalError as e:
+        print(
+            f"loci._query: schema drift on table '{table}': {e}\n"
+            f"  query: {sql}\n  params: {params}",
+            file=sys.stderr,
+        )
         return []
     return [dict(r) for r in rows]
 

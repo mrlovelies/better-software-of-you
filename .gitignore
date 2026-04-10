@@ -42,7 +42,9 @@ data/handoff_temp.sql
 data/signal_hnsw.json
 *.sync-conflict-*
 .syncthing*.swp.tmp
+.syncthing.*.tmp
 hub/tsconfig.app.tsbuildinfo
+hub/tasks/handoff.md
 
 # Local benchmarks and builds (regenerable)
 builds/

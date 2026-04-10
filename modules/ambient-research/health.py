@@ -29,8 +29,8 @@ LOG_FILE = Path.home() / ".local" / "share" / "software-of-you" / "health.log"
 def _detect_this_machine() -> str | None:
     """Detect which machine we're running on by hostname."""
     hostname = socket.gethostname().lower()
-    if "uu1kal0" in hostname or hostname == "desktop-uu1kal0" or hostname == "soy":
-        return "razer"
+    if "uu1kal0" in hostname or hostname == "desktop-uu1kal0" or hostname == "soy" or hostname == "soy-1":
+        return "soy-1"
     if "1746h58" in hostname or hostname == "desktop-1746h58" or hostname == "lucy":
         return "lucy"
     if "legion" in hostname:
@@ -59,8 +59,8 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 OWNER_ID = os.environ.get("TELEGRAM_OWNER_ID", "")
 
 MACHINES = {
-    "razer": {
-        "ip": "100.125.139.126",
+    "soy-1": {
+        "ip": "100.91.234.67",
         "ssh_user": "mrlovelies",
         "ollama_port": 11434,
         "repair_cmds": [
@@ -222,7 +222,7 @@ def check_telegram_bot() -> dict:
 
     Returns {"alive": bool, "restarted": bool, "error": str|None}
     """
-    if THIS_MACHINE != "razer":
+    if THIS_MACHINE != "soy-1":
         return {"alive": True, "restarted": False, "error": None}
 
     env = _systemctl_env()
@@ -345,7 +345,7 @@ def run_health_check():
             log(f"  {name}: OK ({len(ollama['models'])} models)")
 
     # Check Telegram bot (Razer only — auto-heals if down)
-    if THIS_MACHINE == "razer":
+    if THIS_MACHINE == "soy-1":
         bot_status = check_telegram_bot()
         if bot_status["restarted"]:
             log("  Telegram bot: recovered (auto-restarted)")
@@ -425,7 +425,7 @@ def run_daily_summary():
         machine_status.append(f"  {name}: {status} ({models} models)")
 
     # Bot status in daily report (Razer only)
-    if THIS_MACHINE == "razer":
+    if THIS_MACHINE == "soy-1":
         bot_check = check_telegram_bot()
         bot_line = "  telegram bot: " + ("online" if bot_check["alive"] else "OFFLINE")
         if bot_check["restarted"]:

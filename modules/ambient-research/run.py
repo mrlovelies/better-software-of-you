@@ -34,7 +34,7 @@ except ImportError:
     def agent_fail(s, r, m, **kw): pass
 
 MACHINES = {
-    "razer": {"ip": "100.125.139.126", "port": 11434, "tier": 1},
+    "soy-1": {"ip": "100.91.234.67", "port": 11434, "tier": 1},
     "lucy": {"ip": "100.74.238.16", "port": 11434, "tier": 2},
 }
 
@@ -116,7 +116,7 @@ def run_tier1():
 
 
 def _run_tier1_inner(run_id):
-    if not check_machine("razer"):
+    if not check_machine("soy-1"):
         log("Razer offline — skipping Tier 1")
         return
 
@@ -149,14 +149,14 @@ def _run_tier1_inner(run_id):
 
         # Create task
         db.execute(
-            "INSERT INTO research_tasks (stream_id, tier, task_type, prompt, model, machine, status, started_at) VALUES (?, 1, 'web_sweep', ?, 'mistral:7b', 'razer', 'running', datetime('now'))",
+            "INSERT INTO research_tasks (stream_id, tier, task_type, prompt, model, machine, status, started_at) VALUES (?, 1, 'web_sweep', ?, 'mistral:7b', 'soy-1', 'running', datetime('now'))",
             (stream["id"], prompt),
         )
         db.commit()
         task_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
 
         log(f"  {stream['name']}: Tier 1 sweep (task {task_id})...")
-        m = MACHINES["razer"]
+        m = MACHINES["soy-1"]
         result = ollama_generate(m["ip"], m["port"], "mistral:7b", prompt, SYSTEM_PROMPTS["web_sweep"])
 
         if "error" in result:

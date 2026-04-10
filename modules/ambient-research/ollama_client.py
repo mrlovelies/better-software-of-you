@@ -17,8 +17,8 @@ DB_PATH = Path.home() / ".local" / "share" / "software-of-you" / "soy.db"
 # Lucy (12GB) = T2 primary (Qwen 14B, always loaded, no swap penalty)
 # Legion (16GB) = burst capacity (Gemma e4b for function calling, large models when available)
 MACHINES = {
-    "razer": {
-        "ip": "100.125.139.126",
+    "soy-1": {
+        "ip": "100.91.234.67",
         "port": 11434,
         "tier": 1,
         "models": ["mistral:7b", "llama3.1:8b"],
@@ -159,7 +159,7 @@ def pick_machine(tier: int) -> str | None:
         candidates = list(MACHINES.keys())
 
     # Prefer always-on machines first (Lucy before Legion for T2)
-    prefer_order = ["lucy", "razer", "legion"]
+    prefer_order = ["lucy", "soy-1", "legion"]
     candidates.sort(key=lambda n: prefer_order.index(n) if n in prefer_order else 99)
 
     for name in candidates:

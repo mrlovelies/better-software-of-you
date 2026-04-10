@@ -28,6 +28,7 @@ share the same data surface area — the comparison is purely about HOW
 the data is assembled, not WHAT data is available.
 """
 
+import json
 import os
 import re
 import sqlite3
@@ -105,6 +106,23 @@ def _query(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
     except sqlite3.OperationalError:
         return []
+
+
+def _parse_id_list(raw) -> list:
+    """Parse a linked_contacts/linked_projects field that might be JSON or CSV.
+    Mirrors shared.loci._parse_id_list to keep arms.py independent of loci internals."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [int(x) for x in raw if str(x).strip().isdigit()]
+    s = str(raw).strip()
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return [int(x) for x in parsed if str(x).strip().isdigit()]
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return [int(x) for x in re.findall(r"\d+", s)]
 
 
 # ─── Arm A: flat-only ────────────────────────────────────────────────
@@ -300,10 +318,18 @@ def _get_profile_for(conn: sqlite3.Connection, cid: int) -> dict:
         "ORDER BY created_at DESC LIMIT 10",
         (cid,))
 
-    profile["standalone_notes"] = _query(conn,
-        "SELECT * FROM standalone_notes WHERE linked_contacts LIKE ? "
-        "ORDER BY pinned DESC, created_at DESC LIMIT 10",
-        (f"%{cid}%",))
+    # standalone_notes via linked_contacts. CANNOT use LIKE '%cid%' here:
+    # `linked_contacts LIKE '%7%'` matches contact 7 AND contacts 17, 27, 70...
+    # any id whose decimal contains the digit 7. Parse the JSON/CSV in Python.
+    candidates = _query(conn,
+        "SELECT * FROM standalone_notes WHERE linked_contacts IS NOT NULL "
+        "AND linked_contacts != '' ORDER BY pinned DESC, created_at DESC")
+    profile["standalone_notes"] = []
+    for note in candidates:
+        if len(profile["standalone_notes"]) >= 10:
+            break
+        if cid in _parse_id_list(note.get("linked_contacts")):
+            profile["standalone_notes"].append(note)
 
     return profile
 

@@ -293,12 +293,24 @@ def _expand_contact(conn, node: Node, breadth: int) -> list:
         (cid, breadth)):
         out.append(Node("note", row["id"], row, nd, "note.entity_type+entity_id", parent))
 
-    for row in _query(conn, "standalone_notes",
-        "SELECT * FROM standalone_notes WHERE linked_contacts LIKE ? "
-        "ORDER BY pinned DESC, created_at DESC LIMIT ?",
-        (f"%{cid}%", breadth)):
-        out.append(Node("standalone_note", row["id"], row, nd,
-                        "standalone_note.linked_contacts", parent))
+    # standalone_notes via linked_contacts. We CANNOT use LIKE '%cid%' here:
+    # `linked_contacts LIKE '%7%'` matches contact 7 AND contacts 17, 27, 70...
+    # any id whose decimal representation contains the digit 7. Fetch with a
+    # NOT NULL prefilter, parse the JSON/CSV in Python, exact-match by id OR
+    # by contact name (the field has been used with both representations).
+    cname = node.data.get("name")
+    candidates = _query(conn, "standalone_notes",
+        "SELECT * FROM standalone_notes WHERE linked_contacts IS NOT NULL "
+        "AND linked_contacts != '' ORDER BY pinned DESC, created_at DESC")
+    matched = 0
+    for note in candidates:
+        if matched >= breadth:
+            break
+        raw_link = note.get("linked_contacts")
+        if cid in _parse_id_list(raw_link) or _name_in_linked_field(cname, raw_link):
+            out.append(Node("standalone_note", note["id"], note, nd,
+                            "standalone_note.linked_contacts", parent))
+            matched += 1
 
     for row in _query(conn, "tags",
         "SELECT t.* FROM tags t "
@@ -347,12 +359,22 @@ def _expand_project(conn, node: Node, breadth: int) -> list:
         (pid, breadth)):
         out.append(Node("decision", row["id"], row, nd, "decision.project_id", parent))
 
-    for row in _query(conn, "standalone_notes",
-        "SELECT * FROM standalone_notes WHERE linked_projects LIKE ? "
-        "ORDER BY pinned DESC, created_at DESC LIMIT ?",
-        (f"%{pid}%", breadth)):
-        out.append(Node("standalone_note", row["id"], row, nd,
-                        "standalone_note.linked_projects", parent))
+    # standalone_notes via linked_projects — same parse-in-Python pattern as
+    # _expand_contact above. LIKE '%pid%' would match id collisions, AND many
+    # notes store the project NAME instead of the id (legacy schema variant).
+    pname = node.data.get("name")
+    candidates = _query(conn, "standalone_notes",
+        "SELECT * FROM standalone_notes WHERE linked_projects IS NOT NULL "
+        "AND linked_projects != '' ORDER BY pinned DESC, created_at DESC")
+    matched = 0
+    for note in candidates:
+        if matched >= breadth:
+            break
+        raw_link = note.get("linked_projects")
+        if pid in _parse_id_list(raw_link) or _name_in_linked_field(pname, raw_link):
+            out.append(Node("standalone_note", note["id"], note, nd,
+                            "standalone_note.linked_projects", parent))
+            matched += 1
 
     for row in _query(conn, "notes",
         "SELECT * FROM notes WHERE entity_type = 'project' AND entity_id = ? "
@@ -381,6 +403,36 @@ def _expand_decision(conn, node: Node, breadth: int) -> list:
                             "decision.contact_id (reverse)", parent))
 
     return out
+
+
+def _name_in_linked_field(name: str, raw) -> bool:
+    """Check if a project/contact name appears in a linked_X field that might
+    contain a name-string instead of an id-list (legacy schema variant).
+
+    The linked_projects column has been used inconsistently — some rows store
+    IDs ('210', '[214, 206]'), some store the project name as a string
+    ('BATL Lane Command', 'ARIA'). _parse_id_list correctly extracts ids but
+    misses the name-string rows. This helper covers the name-string case.
+
+    Uses exact equality against parsed list elements OR comma-split parts to
+    avoid the substring trap that broke linked_contacts (where 'Repri' would
+    falsely match 'Reprise').
+    """
+    if not name or raw is None:
+        return False
+    s = str(raw).strip()
+    if not s:
+        return False
+    # JSON list of strings
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return any(str(x).strip() == name for x in parsed)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # CSV / single value
+    parts = [p.strip() for p in s.split(",")]
+    return name in parts
 
 
 def _parse_id_list(raw) -> list:

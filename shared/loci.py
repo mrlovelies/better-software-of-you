@@ -287,6 +287,21 @@ def _expand_contact(conn, node: Node, breadth: int) -> list:
         out.append(Node("transcript", row["id"], row, nd,
                         "transcript_participants.contact_id", parent))
 
+    # calendar_events via contact_ids (TEXT field, same parse-in-Python pattern
+    # as linked_contacts above — never use LIKE on raw id substrings).
+    event_candidates = _query(conn, "calendar_events",
+        "SELECT * FROM calendar_events WHERE contact_ids IS NOT NULL "
+        "AND contact_ids != '' AND status != 'cancelled' "
+        "ORDER BY start_time DESC")
+    matched_events = 0
+    for ev in event_candidates:
+        if matched_events >= breadth:
+            break
+        if cid in _parse_id_list(ev.get("contact_ids")):
+            out.append(Node("calendar_event", ev["id"], ev, nd,
+                            "calendar_event.contact_ids", parent))
+            matched_events += 1
+
     for row in _query(conn, "notes",
         "SELECT * FROM notes WHERE entity_type = 'contact' AND entity_id = ? "
         "ORDER BY created_at DESC LIMIT ?",
@@ -358,6 +373,14 @@ def _expand_project(conn, node: Node, breadth: int) -> list:
         "SELECT * FROM decisions WHERE project_id = ? ORDER BY decided_at DESC LIMIT ?",
         (pid, breadth)):
         out.append(Node("decision", row["id"], row, nd, "decision.project_id", parent))
+
+    # calendar_events linked to this project (proper FK, no parsing required)
+    for row in _query(conn, "calendar_events",
+        "SELECT * FROM calendar_events WHERE project_id = ? AND status != 'cancelled' "
+        "ORDER BY start_time DESC LIMIT ?",
+        (pid, breadth)):
+        out.append(Node("calendar_event", row["id"], row, nd,
+                        "calendar_event.project_id", parent))
 
     # standalone_notes via linked_projects — same parse-in-Python pattern as
     # _expand_contact above. LIKE '%pid%' would match id collisions, AND many
@@ -617,6 +640,7 @@ EXPANDERS = {
     "note": None,
     "commitment": None,
     "journal_entry": None,
+    "calendar_event": None,
 }
 
 
@@ -754,6 +778,11 @@ def _label_for(node: Node) -> str:
         title = d.get("title") or "Transcript"
         when = (d.get("occurred_at") or "")[:10]
         return f"{title} ({when})"
+    if et == "calendar_event":
+        title = d.get("title") or "(untitled event)"
+        when = (d.get("start_time") or "")[:16]
+        loc = d.get("location")
+        return f"Event: {title} ({when})" + (f" @ {loc}" if loc else "")
     if et == "task":
         return f"Task: {d.get('title') or ''} [{d.get('status') or ''}]"
     if et == "milestone":

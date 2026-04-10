@@ -343,6 +343,20 @@ def _get_profile_for(conn: sqlite3.Connection, cid: int) -> dict:
         "WHERE tp.contact_id = ? ORDER BY t.occurred_at DESC LIMIT 10",
         (cid,))
 
+    # calendar_events via contact_ids — defensive parse, no LIKE substring trap.
+    # profile.py's calendar branch is currently empty (Sam Okafor caught this in
+    # panel review); we add it here for arm B parity with the loci layer.
+    event_candidates = _query(conn,
+        "SELECT * FROM calendar_events WHERE contact_ids IS NOT NULL "
+        "AND contact_ids != '' AND status != 'cancelled' "
+        "ORDER BY start_time DESC")
+    profile["calendar_events"] = []
+    for ev in event_candidates:
+        if len(profile["calendar_events"]) >= 10:
+            break
+        if cid in _parse_id_list(ev.get("contact_ids")):
+            profile["calendar_events"].append(ev)
+
     profile["entity_notes"] = _query(conn,
         "SELECT * FROM notes WHERE entity_type = 'contact' AND entity_id = ? "
         "ORDER BY created_at DESC LIMIT 10",
@@ -419,6 +433,14 @@ def _render_profile(profile: dict) -> str:
         for t in profile["transcripts"]:
             when = (t.get("occurred_at") or "")[:10]
             lines.append(f"- {t.get('title') or 'Transcript'} ({when})")
+
+    if profile.get("calendar_events"):
+        lines.append(f"\n### Calendar events ({len(profile['calendar_events'])})")
+        for e in profile["calendar_events"]:
+            when = (e.get("start_time") or "")[:16]
+            loc = e.get("location")
+            location = f" @ {loc}" if loc else ""
+            lines.append(f"- {e.get('title') or '(untitled)'} ({when}){location}")
 
     if profile.get("follow_ups"):
         lines.append(f"\n### Pending follow-ups ({len(profile['follow_ups'])})")

@@ -13,27 +13,27 @@ from pathlib import Path
 DB_PATH = Path.home() / ".local" / "share" / "software-of-you" / "soy.db"
 
 # Machine-to-tier pinning: each machine runs ONE primary role to avoid VRAM thrashing.
-# Razer (6GB) = T1 only (Mistral 7B, always loaded, instant)
-# Lucy (12GB) = T2 primary (Qwen 14B, always loaded, no swap penalty)
-# Legion (16GB) = burst capacity (Gemma e4b for function calling, large models when available)
+# soy-1 (6GB VRAM) = T1 only (Mistral 7B / qwen2.5:7b — only 7B models fit in VRAM)
+# Legion (16GB VRAM, RTX 5080) = T2 primary (gemma4:e2b @ 164 tok/s, always-on but gaming via Sunshine)
+# Lucy (12GB VRAM, RTX 3080 Ti) = T2 fallback (qwen2.5:14b @ 27 tok/s)
 MACHINES = {
     "soy-1": {
         "ip": "100.91.234.67",
         "port": 11434,
         "tier": 1,
-        "models": ["mistral:7b", "llama3.1:8b"],
+        "models": ["mistral:7b", "qwen2.5:7b", "llama3.1:8b"],
+    },
+    "legion": {
+        "ip": "100.69.255.78",
+        "port": 11434,
+        "tier": 2,
+        "models": ["gemma4:e2b", "gemma4:e4b", "qwen3:30b-a3b", "mistral:7b"],
     },
     "lucy": {
         "ip": "100.74.238.16",
         "port": 11434,
         "tier": 2,
         "models": ["qwen2.5:14b", "mistral:7b"],
-    },
-    "legion": {
-        "ip": "100.69.255.78",
-        "port": 11434,
-        "tier": 2,
-        "models": ["qwen2.5:32b", "deepseek-r1:32b", "qwen3:30b-a3b", "gemma4:e4b", "mistral:7b"],
     },
 }
 
@@ -151,15 +151,17 @@ def pick_machine(tier: int) -> str | None:
     Checks the research_machines.active flag first (instant) to skip machines
     whose GPU is handed off to gaming, avoiding the 5s health-check timeout.
 
-    For T2: prefers Lucy (always-on, 12GB) over Legion (intermittent, gaming).
+    For T2: prefers Legion (RTX 5080, gemma4 @ 164 tok/s) over Lucy (fallback,
+    27 tok/s on qwen2.5:14b). Legion is always-on but its GPU may be handed
+    off to gaming via Sunshine — the active=0 flag catches that.
     """
     candidates = [name for name, m in MACHINES.items() if m["tier"] == tier]
     if not candidates:
         # Fall back: any machine
         candidates = list(MACHINES.keys())
 
-    # Prefer always-on machines first (Lucy before Legion for T2)
-    prefer_order = ["lucy", "soy-1", "legion"]
+    # Prefer: Legion (fastest GPU) > Lucy (fallback T2) > soy-1 (T1 only)
+    prefer_order = ["legion", "lucy", "soy-1"]
     candidates.sort(key=lambda n: prefer_order.index(n) if n in prefer_order else 99)
 
     for name in candidates:
@@ -174,17 +176,25 @@ def pick_model(machine: str, tier: int) -> str | None:
     if not available:
         return None
 
-    # Tier 2 prefers largest available (32b > 30b > 14b)
+    # Tier 2: prefer gemma4 (fastest on benchmarks), then qwen by size
     if tier == 2:
+        for pattern in ["gemma4:e2b", "gemma4:e4b", "qwen3:30b", "qwen2.5:14b"]:
+            for m in available:
+                if pattern in m:
+                    return m
+        # Fallback: largest qwen available
         for size in ["32b", "30b", "14b"]:
             for m in available:
                 if size in m:
                     return m
 
-    # Tier 1 prefers 7B Mistral or Llama
+    # Tier 1: prefer Mistral 7B (62 tok/s on soy-1), then qwen2.5:7b, then llama
     if tier == 1:
         for m in available:
             if "mistral" in m and "7b" in m:
+                return m
+        for m in available:
+            if "qwen" in m and "7b" in m:
                 return m
         for m in available:
             if "7b" in m or "8b" in m:

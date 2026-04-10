@@ -35,6 +35,7 @@ except ImportError:
 
 MACHINES = {
     "soy-1": {"ip": "100.91.234.67", "port": 11434, "tier": 1},
+    "legion": {"ip": "100.69.255.78", "port": 11434, "tier": 2},
     "lucy": {"ip": "100.74.238.16", "port": 11434, "tier": 2},
 }
 
@@ -193,8 +194,17 @@ def run_tier2():
 
 
 def _run_tier2_inner(run_id):
-    if not check_machine("lucy"):
-        log("Lucy offline — skipping Tier 2")
+    # Prefer Legion (RTX 5080, gemma4:e2b @ 164 tok/s), fall back to Lucy
+    # (RTX 3080 Ti, qwen2.5:14b @ 27 tok/s). Legion is always-on but its GPU
+    # may be handed off to gaming via Sunshine — check_machine catches that.
+    t2_machine = None
+    t2_model = None
+    if check_machine("legion"):
+        t2_machine, t2_model = "legion", "gemma4:e2b"
+    elif check_machine("lucy"):
+        t2_machine, t2_model = "lucy", "qwen2.5:14b"
+    else:
+        log("No Tier 2 machines available — skipping")
         return
 
     db = get_db()
@@ -236,15 +246,15 @@ def _run_tier2_inner(run_id):
         )
 
         db.execute(
-            "INSERT INTO research_tasks (stream_id, tier, task_type, prompt, model, machine, status, started_at) VALUES (?, 2, 'wiki_update', ?, 'qwen2.5:14b', 'lucy', 'running', datetime('now'))",
-            (stream["id"], prompt),
+            "INSERT INTO research_tasks (stream_id, tier, task_type, prompt, model, machine, status, started_at) VALUES (?, 2, 'wiki_update', ?, ?, ?, 'running', datetime('now'))",
+            (stream["id"], prompt, t2_model, t2_machine),
         )
         db.commit()
         task_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-        log(f"  {stream['name']}: Tier 2 wiki update (task {task_id})...")
-        m = MACHINES["lucy"]
-        result = ollama_generate(m["ip"], m["port"], "qwen2.5:14b", prompt, SYSTEM_PROMPTS["wiki_update"], timeout=600)
+        log(f"  {stream['name']}: Tier 2 wiki update (task {task_id}, {t2_machine}/{t2_model})...")
+        m = MACHINES[t2_machine]
+        result = ollama_generate(m["ip"], m["port"], t2_model, prompt, SYSTEM_PROMPTS["wiki_update"], timeout=600)
 
         if "error" in result:
             log(f"    FAILED: {result['error'][:100]}")

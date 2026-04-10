@@ -1,0 +1,35 @@
+{
+  "name": "google-docs",
+  "display_name": "Google Docs",
+  "version": "1.0.0",
+  "description": "Create, read, edit, and manage Google Docs. Link documents to contacts and projects. Export generated views to Docs.",
+  "migration": "051_google_docs_module.sql",
+  "tables": ["google_docs"],
+  "entities": ["google_doc"],
+  "commands": ["docs", "google-setup"],
+  "requires_setup": "google-setup",
+  "standalone_features": [
+    "Create new Google Docs",
+    "Read and search existing Docs",
+    "Edit document content",
+    "List recent documents",
+    "Export HTML content to a Google Doc"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "crm",
+      "features": ["Link documents to contacts", "Shared docs shown on entity pages"],
+      "description": "Documents can be linked to contacts. Entity pages include a linked documents section."
+    },
+    {
+      "requires_module": "project-tracker",
+      "features": ["Link documents to projects", "Project briefs include linked docs"],
+      "description": "Documents can be linked to projects. Project briefs show related documentation."
+    },
+    {
+      "requires_module": "shared-pages",
+      "features": ["Export any generated view to Google Docs via /docs export"],
+      "description": "Any HTML view (dashboard, entity page, project brief) can be exported to a Google Doc."
+    }
+  ]
+}

@@ -26,3 +26,24 @@ this-is-software-of-you.md
 marketing/
 next-features/
 output/screenshots/
+
+# Build artifacts and dependencies
+node_modules/
+dashboard/dist/
+cloudflare/dist/
+
+# Embedded repos and stale prototypes (relocate or revisit)
+the-grow-app/
+
+# Runtime artifacts and Syncthing junk
+data/tmp_token.txt
+data/soy.db.backup-*
+data/handoff_temp.sql
+data/signal_hnsw.json
+*.sync-conflict-*
+.syncthing*.swp.tmp
+hub/tsconfig.app.tsbuildinfo
+
+# Local benchmarks and builds (regenerable)
+builds/
+benchmarks/

@@ -70,6 +70,19 @@ SUBAGENT_INSTRUCTIONS = """You are an LLM judge for an A/B/C benchmark experimen
 
 The benchmark compares three context-assembly strategies. Each entry has a "blind_label" of "1", "2", or "3" — these are randomized PER QUESTION, so the same blind label means different strategies for different questions. You have no way to know which strategy produced which answer, and you should not try to guess. Score each answer on its own merits against the gold facts.
 
+## Impartiality requirement (READ CAREFULLY)
+
+You may be judging answers produced by a model from the same family or version as yourself. This is a real methodological concern: a model judging answers it might itself have generated could be biased toward those answers' style, vocabulary, or reasoning patterns. **You must actively counteract this.**
+
+Treat every answer as if it came from a stranger whose judgment you have no investment in. Specifically:
+  - Do NOT favor answers that "sound like how I would say it." Stylistic similarity is not quality.
+  - Do NOT excuse omissions or hedging just because they feel familiar. If an answer misses a gold fact, mark it down even if the omission is one you might have made yourself.
+  - Do NOT round up on confidence calls. If you're between a 3 and a 4, give a 3.
+  - Reward concrete fact coverage and honest refusal. Penalize fluent fabrication and unsupported speculation, regardless of how confident the answer sounds.
+  - When in doubt between two answers, favor the one that names more specific facts from the gold list — not the one that reads more naturally.
+
+If you find yourself drafting a high score because the answer "is well written" or "shows good reasoning," stop and check whether that score is justified by the gold-fact coverage and the absence of hallucinations. Style is not signal here.
+
 For each entry, produce a JSON object with these EXACT fields and types:
 
   {

@@ -57,6 +57,7 @@ import arms  # noqa: E402
 import judge  # noqa: E402
 import judge_subagent  # noqa: E402
 import report  # noqa: E402
+import test_subagent  # noqa: E402
 
 
 # ─── Configuration ───────────────────────────────────────────────────
@@ -518,6 +519,28 @@ def main() -> None:
     p_imp.add_argument("--blind-map", default=None,
                        help="Path to blind map file (default: blind_map_<run_id>.json next to results.db)")
 
+    p_test_pkg = sub.add_parser(
+        "test-package",
+        help="Dump a test package for subagent-as-test-model runs (no Ollama)",
+    )
+    p_test_pkg.add_argument("--max-context-chars", type=int, default=DEFAULT_MAX_CONTEXT_CHARS,
+                            help=f"Hard char cap on context per arm (default: {DEFAULT_MAX_CONTEXT_CHARS})")
+    p_test_pkg.add_argument("--prompts", default="",
+                            help="Comma-separated prompt IDs (default: all)")
+    p_test_pkg.add_argument("--arms", default="",
+                            help="Comma-separated arm IDs (default: A,B,C)")
+    p_test_pkg.add_argument("--notes", default="",
+                            help="Optional notes attached to the run record")
+    p_test_pkg.add_argument("--soy-db", default=DEFAULT_SOY_DB,
+                            help=f"Path to soy.db (default: {DEFAULT_SOY_DB})")
+
+    p_test_imp = sub.add_parser(
+        "test-import",
+        help="Import answers from a subagent-produced test_answers file",
+    )
+    p_test_imp.add_argument("run_id", help="The run ID")
+    p_test_imp.add_argument("answers_path", help="Path to test_answers_<run_id>.json")
+
     args = parser.parse_args()
 
     if args.cmd == "run":
@@ -579,6 +602,34 @@ def main() -> None:
         print(f"Imported: {result['inserted']}/{result['total']} scores")
         print(f"Skipped:  {result['skipped']}")
         print(f"Errors:   {result['errors']}")
+    elif args.cmd == "test-package":
+        result = test_subagent.dump_test_package(
+            prompts_path=PROMPTS_PATH,
+            soy_db_path=args.soy_db,
+            results_db_path=RESULTS_DB_PATH,
+            arm_ids=_parse_csv(args.arms) or None,
+            prompt_ids=_parse_csv(args.prompts) or None,
+            max_context_chars=args.max_context_chars,
+            notes=args.notes,
+        )
+        print(f"Test package: {result['package_path']}")
+        print(f"Run ID:       {result['run_id']}")
+        print(f"Entries:      {result['n_entries']} ({result['n_prompts']} prompts × "
+              f"{len(result['arms'])} arms)")
+        print()
+        print("Hand the package_*.json file to a subagent. It writes back a "
+              "test_answers_*.json file. Then run:")
+        print(f"  python3 benchmarks/loci/runner.py test-import {result['run_id']} "
+              f"benchmarks/loci/test_answers_{result['run_id']}.json")
+    elif args.cmd == "test-import":
+        result = test_subagent.import_test_answers(
+            run_id=args.run_id,
+            answers_path=args.answers_path,
+            results_db_path=RESULTS_DB_PATH,
+        )
+        print(f"Updated: {result['updated']}/{result['total']} answers")
+        print(f"Skipped: {result['skipped']}")
+        print(f"Errors:  {result['errors']}")
 
 
 if __name__ == "__main__":

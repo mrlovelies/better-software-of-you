@@ -5,6 +5,8 @@
 **Method:** SoY `v_discovery_candidates` view + targeted Gmail searches via MCP for entities the benchmark surfaced as gaps.
 **Scope:** Top frequent correspondents + entities that failed the loci benchmark due to missing interaction history (Elana Dunkelman, James Andrews, CESD/Buchwald, Kerry Morrison).
 
+> **⚠ Correction note:** An earlier version of this document reported "201 messages" for both Elana and James Andrews threads. That was a misreading of the Gmail API's `resultSizeEstimate` field, which caps at ~200 as a pagination hint for queries with many results — it is NOT an actual message count. With date-filtered queries the real numbers are an order of magnitude smaller (Elana: ~11 messages from her since March 1; James Andrews: ~45 messages from him in Q1 2026). Numbers throughout this document have been corrected. The direction of the finding — SoY has zero in both cases — is unchanged, but the magnitude is meaningfully smaller.
+
 ---
 
 ## TL;DR
@@ -22,7 +24,7 @@
 
 **SoY state at benchmark time:** 0 logged interactions with Elana, 0 decisions on elana-dunkelman-vo project, 0 transcripts. The gold answer called for an honest "limited data" response.
 
-**Gmail reality:** **201 messages** between Alex and Elana Dunkelman (most recent: April 8, 2026). Active, substantive correspondence. Partial inventory of recent activity:
+**Gmail reality:** ~20-25 messages both directions since March 1, 2026 (date-filtered count) between Alex and Elana Dunkelman (most recent: April 8, 2026). Active, substantive correspondence. Partial inventory of recent activity:
 
 | Date | Subject | What's in it |
 |---|---|---|
@@ -42,7 +44,7 @@
 
 **SoY state:** Duplicate contacts (id 7 "James Andrews Talent Services" + id 9 "James Andrews VO"), same email. Zero interactions logged. The benchmark's R3 arm C on Mistral *hallucinated* Alex's own email (`j.alex.somerville@gmail.com`) and Alex's father's email (`jamescsomerville@gmail.com`) as "James Andrews' emails" because the duplicate contacts were present in the loci tree with no interactions to ground them.
 
-**Gmail reality:** **201 messages** between Alex and James Andrews. A deep ongoing professional relationship. Highlights:
+**Gmail reality:** **~80-100 messages both directions in 2026** (from:james count was 45 in Q1 via date-filtered query; Alex's replies roughly double it). A deep ongoing professional relationship spanning multiple Zoom coaching sessions, script selection, demo production, and personal check-ins. Highlights:
 
 | Date | Subject | What it contains |
 |---|---|---|
@@ -116,19 +118,26 @@ Ranked by relevance / benchmark impact:
 
 Counts are approximate based on search result metadata. Each counts as a single "thread" but most have multiple messages.
 
-| Thread | Contact | Messages | Dates | Priority for SoY |
+| Thread | Contact | Messages observed | Dates | Priority for SoY |
 |---|---|---|---|---|
-| Website tweaks | Elana Dunkelman | 8+ | Apr 5-8 | **HIGH** (active project, directly answers P1) |
-| Website stuff | Elana Dunkelman | 1+ | Mar 24 | **HIGH** (project kickoff) |
+| Website tweaks | Elana Dunkelman | 8 | Apr 5-8 | **HIGH** (active project, directly answers P1) |
+| Website stuff | Elana Dunkelman | 1 | Mar 24 | **HIGH** (project kickoff) |
 | Animation and commercial | Elana Dunkelman | 1 | Mar 25 | Medium (reference material) |
 | Wrong demo | Elana Dunkelman | 1 | Mar 26 | Low (correction) |
-| Game Expo - March 28 & 29 | Elana + ACTRA group | 5+ | Mar 24-29 | **HIGH** (surfaces whole ACTRA network) |
-| Your demo is ready! | James Andrews | 11+ | Mar 23 | **HIGH** (full demo production arc, decision material for agent pursuit) |
-| Session notes | James Andrews | 3+ | Mar 20 | **HIGH** (Alex's VO website launch context) |
-| 2025 T4 — tips income appears to be missing | BATL HR (Shauna) | 3+ | Mar 9 → Apr 2 | **HIGH** (employer relationship, affects financial/tax records) |
+| Game Expo - March 28 & 29 | Elana + ACTRA group | ~5 | Mar 24-29 | **HIGH** (surfaces whole ACTRA network) |
+| Your demo is ready! | James Andrews | ~11 | Mar 23 | **HIGH** (full demo production arc, decision material for agent pursuit) |
+| Session notes | James Andrews | ~6 | Mar 11 → 20 | **HIGH** (Alex's VO website launch context + recording sessions) |
+| Checking in | James Andrews | ~15 | Feb 4 → Feb 9 | **HIGH** (relationship re-engagement after a year gap, dog emergency, demo planning) |
+| Today | James Andrews | ~10 | Feb 10 → 25 | Medium (scheduling) |
+| Session Notes (earlier) | James Andrews | ~3 | Feb 26 → Mar 4 | **HIGH** (more coaching sessions: Lexus, Slack scripts) |
+| 2025 T4 — tips income appears to be missing | BATL HR (Shauna) | ~3 | Mar 9 → Apr 2 | **HIGH** (employer relationship, affects financial/tax records) |
 | BATL Tips 2025 | BATL HR | 1 | Mar 9 | Medium |
 | Copy of My Employment Agreement | BATL HR | 2 | Mar 9 | **HIGH** (canonical employer doc) |
-| Fence Project | Gerald Karaguni | 5+ | Mar 31 → Apr 8 | Low (life admin) |
+| Fence Project | Gerald Karaguni | ~5 | Mar 31 → Apr 8 | Low (life admin) |
+
+Rough rollup for the two big gaps:
+- **Elana:** ~16 messages observed across 5 threads in the Mar 1 – Apr 8 window.
+- **James Andrews:** ~45+ messages observed across ~7 distinct threads in the Feb 4 – Mar 23 window. The JA correspondence is denser because it includes a multi-session VO coaching engagement, not just project coordination.
 
 ---
 

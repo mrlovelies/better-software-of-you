@@ -259,6 +259,52 @@ Ordered by value × tractability:
 
 ---
 
+## Panel commentary
+
+Three reviewers were handed the above synthesis and asked for a colleague's reaction — not a code review or a methodology overhaul, just sharp takes on where the writeup is and isn't load-bearing. Diego brings the eval methodologist's eye, Sara the judge-bias specialist's, Marcus the ship-it product strategist's.
+
+### Diego Reyes — Methodology
+
+**Overall reaction:** The writeup is unusually honest about its own constraints — the caveats section reads like it was written by someone who has been burned before, which I appreciate. What I find suspect is the confidence of the TL;DR relative to the sample sizes underneath it. N=1 run per (model × arm), 17 prompts, 2-4 prompts per bucket, and a 65% residual length confound (arm C gets more context because arms A and B are frequently under the cap) — these aren't fatal, but the TL;DR's three-bullet certainty ("Loci helps every model tier that can navigate structured context") is phrased like the data is stronger than it is.
+
+**Most interesting finding (from my angle):** Not the loci result — the prep bucket's behavior. Arm C wins Prep at both Qwen3 30B (3.25) and Claude (4.25) but loses at the two weaker tiers. That's the cleanest "capability-gated benefit" signal in the whole matrix and it's buried in section "Per-bucket at each tier." Much more defensible than the monotonic-hallucinations framing because it survives the per-bucket noise that section 3 of the caveats warns about. If you want a headline that the data actually supports, it's "loci helps with prep tasks once the model is big enough to walk the tree."
+
+**Weakest claim:** "Upgrading the model beats optimizing the retrieval" (TL;DR bullet 2). It's true in the sense that hallucination counts drop monotonically with model size, but the framing sets up a false binary. The actual comparison you'd need to defend it is "arm A on Claude vs arm C on Mistral" — and the synthesis doesn't surface that head-to-head. It's also confounded by the `find_seeds` bug fix happening between the Mistral run and the rest, which the caveats acknowledge but the TL;DR does not. The bullet overclaims for a point that's probably correct directionally.
+
+**Follow-up experiment I'd run:** Two reruns of the Claude and Qwen 14B tiers (the two tiers where the loci story actually lives), different RNG seed on the judge subagent, averaged. That's 102 extra data points — cheap, and it collapses the single-run variance caveat which is currently the biggest hole in the story. Second priority: one additional 30B-class model (Llama 3.3 70B or Mistral Large 2) to either confirm or kill the Qwen3 anomaly. Without that second 30B data point, the "anomaly" framing is unfalsifiable.
+
+**What I would tell the author:** Rewrite the TL;DR to match the evidence you actually have — "Loci helps at the medium and top tiers on certain prompt shapes; run it twice before calling it a trend."
+
+### Sara Okonkwo — LLM-as-Judge
+
+**Overall reaction:** The author is aware of the Claude-judging-Claude problem and partially mitigated it, but the mitigations listed (impartiality language, blind labels, judge rationales) are the weak end of the mitigation ladder. The strong mitigations — a second-family judge, multiple judge runs with averaging — are explicitly not applied. So the Claude-row numeric scores should be read as "Claude-judged-Claude with lipstick," and the synthesis is honest enough to say that in the caveats, but the TL;DR and recommendations then quietly treat the Claude row as authoritative anyway. That's the tension.
+
+**Most interesting finding (from my angle):** The judge confidence row (section "Headline numbers") is doing something nobody's talking about. On Mistral, judge confidence on arm C is 4.71 — the highest confidence anywhere in the matrix — while arm C is simultaneously scoring the *worst* on quality. **The judge is confidently grading bad answers.** That's a judge-calibration signal worth investigating independently of the loci question: what is it about arm C's format (tree-structured context → longer, more fluent answers?) that makes the judge more confident regardless of correctness? This is a bigger story than the authors realize.
+
+**Weakest claim:** The "zero hallucinations is not subject to same-model judging bias" claim in section "The monotonic signal." That's partially true — a tally is more objective than a 1-5 rating — but "hallucination" still requires the judge to decide what counts as unsupported. Claude judging Claude has a known tendency to be charitable about Claude's phrasing ("the model is hedging, not asserting"). Zero hallucinations across 51 Claude answers is extraordinary, and extraordinary claims from a same-family judge need a second judge to confirm. The synthesis treats it as the most robust finding; I'd treat it as the one most in need of triangulation precisely because it's extraordinary.
+
+**Follow-up experiment I'd run:** Re-score the 51 Claude answers with Qwen 14B as judge using the same rubric and prompt. Cheap (~5 minutes on Lucy), and it specifically answers the question "how much of the zero-hallucination result survives a second-family judge." If Qwen 14B flags even 2-3 hallucinations in the Claude answers, the monotonic story weakens dramatically and the real headline becomes "model choice + loci + charitable judging." If it flags zero, the finding is much stronger than it currently reads.
+
+**What I would tell the author:** The zero-hallucination number is your strongest-looking claim and your most fragile one — get a second judge on just the Claude row before you build a recommendation stack on top of it.
+
+### Marcus Webb — Product Strategist
+
+**Overall reaction:** This is the kind of writeup I wish more feature evaluations looked like — tier-aware recommendations, a concrete "ship or shelve" answer, and a sensible default (on above a threshold). I'd ship this. The caveats would make an academic reviewer nervous, but for a personal-data tool with one user (the author), the signal is clearly strong enough to act on. The part that makes me pause is the Qwen3 30B anomaly sitting right in the middle of the capability ladder — if that model ever becomes the default on Legion, you just broke your own recommendation.
+
+**Most interesting finding (from my angle):** The prep bucket at Claude scoring 4.25 on arm C vs 4.00 on A and B (section "Per-bucket at each tier"). That's the deployment sweet spot for me — prep is the highest-value use case in a personal data tool ("brief me on X before this meeting"), it's exactly the kind of thing a user will notice improving, and it's where loci's graph-walk is most defensibly doing real work. Forget the 0.23 overall relevance gain; the prep-specific delta is what I'd put in a changelog.
+
+**Weakest claim:** The "For the **capable tier** (Qwen3 30B class), optional" recommendation in "The practical recommendations." You're basically saying "use loci except on the one 30B model we tested, which is maybe broken." That's not a shippable rule. Either the recommendation is "loci on above a certain tier, unconditionally" with a known Qwen3 30B-a3b exclusion, or you don't have enough data to recommend at the 30B tier at all. The current hedge leaves the routing logic in an awkward place where `use_loci` needs per-model overrides based on one ambiguous run.
+
+**Follow-up experiment I'd run:** Not a benchmark — a real-world shadow test. For two weeks, run both arm B and arm C in parallel on every live SoY query, log the diff, and eyeball it once a day. Cheap, high-signal, tells you whether the 0.23-relevance delta translates into noticeable user-facing improvement. The formal benchmark has taken you as far as it can; the next data point is "does Alex actually notice."
+
+**What I would tell the author:** Ship it with a feature flag on above the 14B tier, exclude Qwen3 30B-a3b by name, and treat Kerry's PR as a "here's what I found, here's the flag, here's the tier routing" conversation rather than a "here's a universal improvement" pitch.
+
+### Cross-persona synthesis
+
+The claim all three panelists would defend: **loci produces a real, capability-gated benefit on prep-style queries from roughly the 14B tier upward**. It's the finding with the cleanest signal in the per-bucket data, the one least vulnerable to judge bias, and the one most obviously shippable. The claim all three would push back on is the TL;DR's hallucination-monotonicity framing — Diego on the N=1 and confound grounds, Sara on the same-model-judging grounds, Marcus on the "this isn't what you actually ship on" grounds. It's not wrong, it's just the wrong thing to lead with. The single highest-value follow-up all three would endorse: **re-run the Claude and Qwen 14B tiers a second time with a second-family judge (Qwen 14B scoring Claude, and vice versa) on the same 17 prompts**. That one experiment tightens the variance story (Diego), triangulates the zero-hallucination finding (Sara), and gives Marcus the confidence to flip the feature flag for Alex's upstream PR. Everything else — the Qwen3 30B mystery, the C1 prompt, the renderer multi-path fix — can wait behind that.
+
+---
+
 ## Appendix A: Run artifacts
 
 All run artifacts are in `benchmarks/loci/`:

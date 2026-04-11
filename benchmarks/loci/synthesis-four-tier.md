@@ -259,6 +259,52 @@ Ordered by value × tractability:
 
 ---
 
+## Update (2026-04-11): Second-family judge correction
+
+**The "zero hallucinations at Claude" finding above does not fully survive a second-family judge.** Per Sara Okonkwo's recommendation in the panel commentary below, we re-scored the 51 Claude Opus answers with Qwen 2.5 14B (on Lucy) as an independent judge, using the same rubric, same blind labels, same gold facts. The relevance ranking held — both judges independently ranked C > B > A on Claude's answers — but the zero-hallucination claim did not.
+
+### Second-judge headline comparison
+
+| Dimension | Opus judge (A/B/**C**) | Qwen 14B judge (A/B/**C**) |
+|---|---|---|
+| Relevance | 4.12 / 4.29 / **4.35** | 4.24 / 4.35 / **4.47** |
+| Completeness | 3.71 / 3.94 / **3.88** | 3.53 / 3.76 / **3.76** |
+| Surfaced non-obvious | 3.76 / 3.76 / **3.94** | 3.41 / 3.76 / **3.71** |
+| **Hallucinations (mean)** | **0.00 / 0.00 / 0.00** | **0.35 / 0.18 / 0.12** |
+| Hallucination prompts | 0 / 0 / 0 | **5 / 3 / 2** |
+
+### What this tells us
+
+1. **The core loci-wins-at-Claude ranking is robust to judge choice.** Both judges put C first on relevance, both see the same ~0.23-point delta between arm C and arm A. Sara's same-model-bias concern was valid to raise but the ranking survived triangulation. This is the finding you can now make with more confidence.
+
+2. **The zero-hallucinations claim was an Opus-judging-Opus artifact.** Qwen 14B found ten hallucinations across 51 answers where Opus had found zero. Some are legitimate catches (R4 arm A citing the EY grant from context it didn't actually have, S2 arm A naming Reprise as high-priority when it wasn't in the flat context) and some are dubious (R3 arm A marked as hallucinating because it honestly refused on context that lacked the email; A2 arm C marked because Qwen couldn't find "chemo" in arm C's context even though it was there). Judges are imperfect; same-family judges are particularly imperfect on their own family's style. Consider the zero-hallucination number **retracted** as a headline claim.
+
+3. **Arm C STILL has the fewest hallucinations** — even under the stricter Qwen judge. Under Qwen's counting, arm A has 5 hallucinating prompts, arm B has 3, arm C has 2. The "loci reduces hallucinations at the top tier" story is actually *stronger* under the second judge than under the first, because the first judge collapsed all three arms to zero and lost the signal. Loci's fabrication-rate advantage at the Claude tier is a real finding, just not the dramatic one the TL;DR promised.
+
+4. **Zero entries had a ≥2-point relevance disagreement between the two judges.** Inter-judge agreement on relevance is remarkably high (every entry within 1 point). The disagreement is specifically on what counts as a hallucination — a definitional dispute, not a calibration failure.
+
+### What should change in the TL;DR
+
+**Original claim** (section "TL;DR", bullet 2):
+> The biggest finding isn't about loci at all. Hallucinations drop monotonically from 16 prompts (Mistral 7B) → 0 prompts (Claude Opus) regardless of which retrieval strategy is used. Upgrading the model beats optimizing the retrieval.
+
+**Revised claim:**
+> Hallucinations drop monotonically with model capability, from 16 prompts at Mistral 7B to ~7 prompts at Claude Opus (under a second-family judge; the original Opus self-judge reported zero). Model capability helps more than retrieval strategy, but the effect is softer than the original headline suggested. At the Claude tier specifically, loci's retrieval does still reduce hallucinations below flat retrieval by a meaningful margin — 2 prompts vs 5 under Qwen's counting.
+
+**And the one-breath summary** should be revised to drop the "hallucinations drop to zero" claim entirely. A cleaner version:
+
+> *"Loci helps models that can navigate structured context — ruled out for Mistral 7B, most clearly confirmed at Qwen 14B and Claude Opus. The biggest margin is on Prep-bucket prompts at the Claude tier, where loci's walked neighborhood gives the model a meaningfully cleaner answer. At lower tiers and on non-Prep prompts the effect is real but small; at Mistral 7B it's actively harmful. Model choice matters more than retrieval strategy for baseline quality, but retrieval strategy still accounts for the remaining ceiling."*
+
+This is closer to what the combined evidence actually supports — Diego's methodology note ("the TL;DR overclaims"), Sara's judge-bias warning, and the Qwen triangulation all pointing in the same direction.
+
+### Methodology lesson
+
+Same-family judges on their own family's output produce a specific and predictable failure mode: **they collapse nuanced gradients into boundary values.** Opus collapsed Claude's hallucination rates to 0/0/0 across the three arms. Qwen — a different-family, genuinely-different-weights judge — preserved the gradient at 5/3/2. When you're judging a model with a same-family judge, even with blind labeling and impartiality language, expect flattening at the extremes. Never ship "zero X" or "perfect Y" as a headline claim without a second-family judge to confirm.
+
+The rest of this document stands. The original synthesis (and the panel commentary) correctly hedged the Claude results with the same-model caveat — this update makes the caveat concrete.
+
+---
+
 ## Panel commentary
 
 Three reviewers were handed the above synthesis and asked for a colleague's reaction — not a code review or a methodology overhaul, just sharp takes on where the writeup is and isn't load-bearing. Diego brings the eval methodologist's eye, Sara the judge-bias specialist's, Marcus the ship-it product strategist's.

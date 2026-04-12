@@ -384,7 +384,7 @@ def generate(digest_type: str) -> dict | None:
     }
 
 
-HUB_URL = "https://soy.tail2272ce.ts.net"
+HUB_URL = "https://soy-1.tail2272ce.ts.net"
 
 
 def _notify_telegram(digest_type: str, title: str, section_count: int):

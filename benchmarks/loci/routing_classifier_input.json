@@ -1,0 +1,91 @@
+{
+  "tool_descriptions": "You have two tools available:\n\nTool 1 \u2014 soy_search:\n  Retrieve specific facts, decisions, emails, or contact details from a personal data store.\n  Use when the user asks for a specific known entity, a direct fact, a date, an email address,\n  or the status of a specific thing. Best for: \"what did I decide about X\", \"do I have Y's email\",\n  \"remind me where things stand with Z.\"\n\nTool 2 \u2014 soy_explore:\n  Walk the relationship graph to discover connections, prep context, or surface patterns across\n  entities. Use when the question involves connecting things, prepping for a meeting or work session,\n  finding what's changed or fallen off, or understanding how different parts of the user's life relate.\n  Best for: \"what threads connect X to Y\", \"prep me for Z\", \"what's fallen off my radar\",\n  \"where am I overcommitting.\"\n",
+  "task": "For each question below, choose which tool you would invoke: 'search' or 'explore'. Return a JSON array of {id, choice, reasoning} objects. Base your choice ONLY on the question text and the tool descriptions above. Do not consider what data might be in the store \u2014 just classify the question by type.",
+  "questions": [
+    {
+      "id": "R1",
+      "bucket": "recall",
+      "question": "What payment provider did I decide to use for The Grow App, and why?"
+    },
+    {
+      "id": "R2",
+      "bucket": "recall",
+      "question": "What did I decide about model selection for ARIA, and why?"
+    },
+    {
+      "id": "R3",
+      "bucket": "recall",
+      "question": "Do I have James Andrews' current email?"
+    },
+    {
+      "id": "R4",
+      "bucket": "recall",
+      "question": "Remind me where things stand with Jessica on The Grow App before I reply to her last email."
+    },
+    {
+      "id": "P1",
+      "bucket": "prep",
+      "question": "I'm about to record VO with Elana \u2014 what should I have in mind?"
+    },
+    {
+      "id": "P2",
+      "bucket": "prep",
+      "question": "Prep me for picking up work on Specsite tomorrow."
+    },
+    {
+      "id": "P3",
+      "bucket": "prep",
+      "question": "Have I actually followed up with anyone at CESD or Buchwald recently?"
+    },
+    {
+      "id": "P4",
+      "bucket": "prep",
+      "question": "What's fallen off my radar in the last two weeks?"
+    },
+    {
+      "id": "C1",
+      "bucket": "connection",
+      "question": "What threads connect my Reprise work to my BATL work?"
+    },
+    {
+      "id": "C2",
+      "bucket": "connection",
+      "question": "Are there any open or unresolved questions about The Grow App's payment flow?"
+    },
+    {
+      "id": "C3",
+      "bucket": "connection",
+      "question": "What's the relationship between my axe throwing job and the BATL Lane Command project?"
+    },
+    {
+      "id": "C4",
+      "bucket": "connection",
+      "question": "Have I been talking with anyone at Buchwald or DDO about animation work?"
+    },
+    {
+      "id": "S1",
+      "bucket": "synthesis",
+      "question": "Why did I rename Cadence to Reprise?"
+    },
+    {
+      "id": "S2",
+      "bucket": "synthesis",
+      "question": "Where am I most likely to be overcommitting right now based on what's active?"
+    },
+    {
+      "id": "S3",
+      "bucket": "synthesis",
+      "question": "Have my conversations with Kerry about Reprise influenced any decisions or notes I've made since?"
+    },
+    {
+      "id": "A1",
+      "bucket": "adversarial",
+      "question": "What did Kerry think of the Reprise demo I showed her last week?"
+    },
+    {
+      "id": "A2",
+      "bucket": "adversarial",
+      "question": "Where did things land with that client whose mom is going through chemo?"
+    }
+  ]
+}

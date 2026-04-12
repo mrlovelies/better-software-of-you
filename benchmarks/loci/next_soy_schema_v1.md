@@ -1,9 +1,9 @@
 # next_soy Schema v1 — DDL Document for Review
 
-**Status:** Draft for review. Not yet applied, not yet seeded.
+**Status:** Draft for review. Updated 2026-04-11 with findings from `seed_contact_audit.md` (contacts.status enum, five new edge types, concrete new-contact list, revised episode list, `building_site_for` acceptance test).
 **Scope:** Concrete schema for `next_soy.db`, a parallel SQLite database for testing loci V2 against the schema evolution proposed by the schema architecture panel.
-**Basis:** Synthesizes the three-proposal core from `schema_panel.md` (Sam's `entity_edges`, Priya's `memory_episodes`, Rachel's `daily_logs`) with the carry-over tables from real SoY needed for entity continuity.
-**Relationship to real SoY:** Parallel, not replacement. Real `soy.db` is untouched. `next_soy.db` is a separate file at `data/next_soy/next_soy.db` (path TBD), populated from a seed script that reads real SoY's tables plus Gmail ingest per `email_gap_findings.md`.
+**Basis:** Synthesizes the three-proposal core from `schema_panel.md` (Sam's `entity_edges`, Priya's `memory_episodes`, Rachel's `daily_logs`) with the carry-over tables from real SoY needed for entity continuity, plus the audit-informed decisions about which contacts are real correspondents and which are ghost records.
+**Relationship to real SoY:** Parallel, not replacement. Real `soy.db` is untouched. `next_soy.db` is a separate file at `data/next_soy/next_soy.db` (path TBD), populated from a seed script that reads real SoY's tables plus Gmail ingest per `email_gap_findings.md` and `seed_contact_audit.md`.
 
 ---
 
@@ -142,7 +142,27 @@ CREATE INDEX IF NOT EXISTS idx_identities_value
 ALTER TABLE contacts ADD COLUMN merged_into_id INTEGER
     REFERENCES contacts(id);
 ALTER TABLE contacts ADD COLUMN merged_at TEXT;
+
+-- Status enum (added after seed_contact_audit.md findings).
+-- Separates real correspondents from aspirational/broadcast records so
+-- the loci layer doesn't waste budget walking into ghost contacts.
+-- See seed_contact_audit.md for the values assigned per contact.
+ALTER TABLE contacts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'prospect', 'inactive', 'broadcast_only'));
+
+CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status);
 ```
+
+**Status values and intent:**
+
+| Value | Meaning | Loci behavior | Example |
+|---|---|---|---|
+| `active` | Real, reciprocal correspondence meeting threshold | Full expansion, primary seed | Jessica Martin, Jackie Warden, Kerry Morrison |
+| `prospect` | Aspirational / research record, no correspondence | Not walked by loci; visible in inspector only | CESD, Atlas, DDO, Buchwald, 5 other agencies |
+| `inactive` | Was active, has gone cold | Walked only on explicit query, low weight | (none at seed time) |
+| `broadcast_only` | Volume-qualifies but one-way (newsletters, automated senders) | Never expanded; shows as orientation context only | ACTRA Toronto, Tish Hicks (VO Dojo) |
+
+The `seed_contact_audit.md` report provides the per-contact assignment for all 33 existing records plus the new additions.
 
 ### `notes_v2` — Rachel's replacement for `standalone_notes`
 
@@ -346,18 +366,26 @@ This is load-bearing. Loci's traversal effectively becomes "walk outward from a 
 | `promoted_to` | `note → project` | Note grew into a project |
 | `promoted_to` | `note → task` | Note grew into a task |
 
-### Professional network edges (new, from email gap findings)
+### Professional network edges (new, from email gap findings + seed contact audit)
 
 | `edge_type` | Direction | Example |
 |---|---|---|
 | `employed_by` | `contact → contact` | Alex → BATL (BATL as company contact) |
-| `employer_of` | `contact → contact` | BATL → Alex (inverse; also derivable) |
+| `works_at` | `contact → contact` | Alias for `employed_by`; used when the relationship is current and primary |
 | `agent_of` | `contact → contact` | Alison Little → Elana (Alison represents Elana) |
-| `represented_by` | `contact → contact` | Elana → Alison (inverse) |
+| `represented_by` | `contact → contact` | Elana → Alison (inverse; models Elana's agents as *attributes of Elana*, not first-class contacts) |
 | `colleague_of` | `contact → contact` | Alex ↔ Jon McLaren (ACTRA) |
-| `collaborator_on` | `contact → project` | Kerry → AloneinaBar / SoY |
-| `family_of` | `contact → contact` | Alex ↔ James Somerville |
-| `mentor_of` | `contact → contact` | James Andrews → Alex |
+| `collaborator_on` | `contact → project` | Kerry → SoY, Kerry → Spec-Site platform |
+| `family_of` | `contact → contact` | Alex ↔ James Somerville, Alex ↔ Cameron Somerville, Alex ↔ Ainslie Roberts |
+| `mentor_of` | `contact → contact` | James Andrews → Alex, Ivan Sherry → Alex |
+| **`building_site_for`** | `contact → contact` | **Alex → Elana, Alex → Ivan, Alex → Jon McLaren, Alex → Craig Burnatowski.** Cross-references the `/wkspaces/<name>-site` directory. One of the load-bearing cross-module facts that V1 acceptance tests will walk. |
+| **`cc_regular_of`** | `contact → contact` | James Somerville → Anna Lee, Cameron Somerville, Chris Graham, Ainslie Roberts. Captures the "inner family/advisor cc circle" that shows up repeatedly across threads. |
+| **`neighbor_of`** | `contact → contact` | Alex ↔ Gerald Karaguni (Fence Project thread) |
+| **`books_for`** | `contact → contact` | Jackie Warden → Alex (agent books auditions; the densest professional relationship in the inbox) |
+| **`close_friend_of`** | `contact → contact` | Alex ↔ Kerry Morrison. Distinct from `colleague_of` — tonal + historical, and gates unfiltered banter context. |
+| **`prospect_for`** | `contact → project` | Chris Graham → Reprise (early external business touchpoint, dad forwarded tech stack doc Mar 17) |
+| **`shareholder_of`** | `contact → contact` | Alex → Dico, Cameron Somerville → Dico (Dico as a company-type contact) |
+| **`owner_of`** | `contact → contact` | James Somerville → Dico |
 
 ### Conceptual / associative edges (new, Priya's territory at the edge level)
 
@@ -524,6 +552,7 @@ This is explicitly **seeded data, not derived data**. The panel warned against L
 Other seed episodes to include (pending user confirmation when the seed script is written):
 - "VO career 2026 push" — spanning James Andrews sessions, Elana's site, ACTRA Game Expo, us-vo-agent-pursuit
 - "Axe throwing day job" — BATL HR, T4 tips thread, the ambient context around Alex's employment
+- **"James's estate planning 2026"** — added from Round 2 audit. Spans "Will ideas to be discussed" (Jan 28), "Will ideas Rev 2" (Jan 29), "Time for a Will" (Mar 28). Members: James Somerville (protagonist), Alex (member/shareholder), Cameron Somerville (member/shareholder), Ainslie Roberts (member), Anna Lee (witness, cc'd for accounting context), **Dico** (artifact — the holding company that anchors the estate discussion). This is a good stress test for episodes — a temporally-bounded thread of related messages across 2 months that doesn't correspond to any single project or decision in the current schema, but that obviously matters. Alex's reply "I have no intention of exiting Dico" becomes queryable once the episode + the `shareholder_of` edges exist.
 
 ### Step 9 — Populate `wikilinks` from known entity names
 
@@ -541,9 +570,14 @@ Plus hand-curated short-forms where they make sense:
 - `Jessica` → `Jessica Martin` (contact id 1)
 - `Grow App` → `The Grow App` (project id 1)
 - `BATL` → `BATL Lane Command` (project id 2) — AND → `BATL Axe Throwing` (contact, once created as employer)
-- `Kerry` → `Kerry Morrison` (contact id 6)
+- `Kerry` → `Kerry Morrison` (contact id 6, now promoted from ghost record)
 - `Elana` → `Elana Dunkelman` (contact id 8)
-- `James` → ambiguous, flagged for user disambiguation at query time (James Andrews vs James Somerville)
+- `Ivan` → `Ivan Sherry` (new)
+- `Dad` → `Jim Somerville` (new; father)
+- `Jim` → `Jim Somerville` (new; common nickname — the "James" form is the formal variant, "Jim" is what everyone actually calls him). Jim is the canonical display name; `James Somerville` also resolves via a secondary alias for disambiguation against James Andrews.
+- `Cam` / `Cameron` → `Cameron Somerville` (new; brother, Dico co-shareholder)
+- `James` → ambiguous, flagged for user disambiguation at query time (James Andrews the coach vs James Somerville the father). The wikilink resolver should detect this alias collision and prompt the writer — do NOT auto-resolve.
+- `Chris` → ambiguous (Chris Graham vs Chris Hudson visible in cc lists); prompt for disambiguation.
 
 ---
 
@@ -560,9 +594,36 @@ Plus hand-curated short-forms where they make sense:
 
 **The following will be HAND-AUTHORED (with user review required before committing):**
 
-- The 2-3 seed `memory_episodes` entries
+- The 3–4 seed `memory_episodes` entries (see updated list in step 8)
 - The hand-curated wikilink short-forms
-- Any new contacts for entities identified in `email_gap_findings.md` but not in real SoY yet (Alison Little, Jason Thomas, Myles Dobson, ACTRA colleagues, BATL HR as contact, Gerald Karaguni, Meghan Hoople, Tish Hicks, BATL Axe Throwing as a company-type contact for the employer relationship)
+
+**New contacts to add at seed time (resolved via `seed_contact_audit.md`):**
+
+Primary contacts (status='active'):
+- **James Somerville** (father, advisor) — `jamescsomerville@gmail.com`
+- **Ivan Sherry** (VO coach, site client) — `ivantoucan@yahoo.ca`
+- **Shauna / BATL HR** (employer contact) — `hr@batlgrounds.com`
+- **Gerald Karaguni** (neighbor) — `gerald.karaguni@gmail.com`
+- **Jon McLaren** (site client + ACTRA peer) — `jonmclaren@me.com`
+- **Craig Burnatowski** (site client + ACTRA peer) — `craigburnatowski@gmail.com`
+- **Cameron Somerville** (brother) — `cameron.somerville@gmail.com`
+- **Chris Graham** (advisor, early Reprise business contact) — `CGraham@constellationhb.com` (work) + `me@chrisg.ca` (personal); both go into `contact_identities` against a single canonical contact
+- **Ainslie Roberts** (family) — `ainslieace1@aol.com`
+- **BATL Axe Throwing** (as a company-type contact for the employer relationship)
+- **Dico** (company-type contact) — James Somerville's holding company. Alex and Cameron are shareholders. Resolves Q7. Edges on seed: `owner_of` (James → Dico), `shareholder_of` (Alex → Dico), `shareholder_of` (Cameron → Dico).
+
+Promoted from existing ghost record (critical update):
+- **Kerry Morrison** (id 6) — currently tagged "Demac Media (former)" with no email. Reality per audit: primary SoY collaborator and close friend. Update fields: email = `kmo@betterstory.co`, company = `Better Story`, role = `SoY collaborator / dev peer / close friend`, status = `active`. Add `contact_identities` for both `kmo@betterstory.co` and (if confirmed) `kerry@softwareof.you`.
+
+Status-flagged but not primary:
+- ACTRA Toronto (existing id 5) → `status = 'broadcast_only'`
+- Tish Hicks / The VO Dojo (new) → `status = 'broadcast_only'`
+- The 8 cold talent-agency records → `status = 'prospect'` (CESD, Atlas, DDO, ACM, Stewart, SBV, Buchwald, Innovative Artists, plus their sub-records without emails)
+
+Explicitly NOT added as contacts:
+- **Alison Little** and **Jason Thomas** — Elana's principal agent and voice agent. These were originally going to be seeded as contacts. Audit revised: zero direct correspondence, they appear only in Elana's email signature. Model as `represented_by` edges (Elana → Alison, role='principal'; Elana → Jason, role='voice') with Alison and Jason as minimal contact rows (name + agency only) referenced by the edge. This is the cleanest way to encode "attributes of Elana" without polluting the primary contact set.
+- **Myles Dobson, Samy Osman, Cory Doran, Anna Morreale** — ACTRA Game Expo group thread members with zero direct correspondence to Alex. Skip as contacts. If we later add an `event_groups` or `cohorts` table (deferred past v1), they could live there as group members.
+- **Meghan Hoople** (CAVA) — 2 identical webinar announcements, skip.
 
 **The following will NOT be synthetic in V1:**
 
@@ -576,12 +637,15 @@ Plus hand-curated short-forms where they make sense:
 
 Before any downstream work (loci_v2.py against the new schema, benchmark re-run), the seed script must pass validation:
 
-1. **Row count parity.** Every carry-over table in `next_soy` has the same row count as in real SoY (with the exception of `notes_v2` vs `standalone_notes` which should match, and `contacts` which has one extra row marked as merged).
+1. **Row count parity.** Every carry-over table in `next_soy` has the same row count as in real SoY (with the exception of `notes_v2` vs `standalone_notes` which should match, and `contacts` which has more rows than real SoY due to the ten new primary additions from the seed audit, plus one row marked as merged).
 2. **Edge count sanity.** `entity_edges` should have at least N rows where N = count of non-NULL FK values across all carry-over tables. Higher is expected (from parsed `linked_*` columns).
 3. **No orphaned edges.** Every `src_type, src_id` and `dst_type, dst_id` in `entity_edges` must reference a row that exists in next_soy.
 4. **Unresolved-link audit.** The `seed_unresolved.log` file from step 4 is inspected manually before the script is considered complete.
 5. **Identity uniqueness.** `contact_identities(identity_type, identity_value)` has no duplicates.
 6. **Wikilink ambiguity report.** For every alias that resolves to more than one canonical entity, log to `wikilinks_ambiguous.log` and require user review.
+7. **Contact status distribution check.** After seeding, the query `SELECT status, COUNT(*) FROM contacts GROUP BY status` must produce at least one row for each of `active`, `prospect`, `broadcast_only` — if any of these buckets is empty, the audit was not applied correctly. `inactive` is allowed to be empty.
+8. **`building_site_for` cross-reference test** *(load-bearing acceptance test for cross-module facts)*. For each of the four client-site workspace directories (`/wkspaces/elana-dunkelman-vo`, `/wkspaces/ivan-sherry-site`, `/wkspaces/jon-mclaren-vo`, `/wkspaces/craig-burnatowski-site`), there must exist exactly one `entity_edges` row of the form `(src_type='contact', src_id=<alex>, dst_type='contact', dst_id=<client>, edge_type='building_site_for')`. This is the single clearest example of a cross-module fact that the flat schema cannot express and that next_soy's v1 must. If this test fails, loci_v2 will not be able to surface "who is Alex building sites for right now" even though the facts exist in the workspace.
+9. **Kerry promotion check.** The contact with id 6 must have: `email` populated (not NULL), `status = 'active'` (not NULL/legacy), and at least one `entity_edges` row of type `collaborator_on` pointing at the SoY project. If any of these are missing, the audit promotion did not land.
 
 The seed script should produce a validation report at the end: `next_soy_seed_report_<timestamp>.md` with all of the above counts and any warnings.
 
@@ -601,18 +665,20 @@ Priya's replayability argument from the schema panel is load-bearing here: we wa
 
 ---
 
-## Open questions for your review
+## Open questions — all resolved 2026-04-11
 
-These are things the DDL draft doesn't settle and will need your answer before the seed script is written:
+All eight questions that originally gated the seed script are now answered. The schema is committed for implementation.
 
-1. **`daily_logs` seed strategy.** Empty at V1 and wait for real writing? Or retroactively construct a week of logs from other activity (recent emails, commits, notes) to exercise the mention-resolution path?
-2. **Seed episodes list.** The three proposed ("operator intelligence layer," "VO career 2026 push," "axe throwing day job") are my guesses at what matters. You'd know better. Want to revise before I commit them to the seed script?
-3. **New contact additions.** The email gap findings identified ~10 new contacts that should exist (Alison Little, Jason Thomas, ACTRA colleagues, BATL as employer, Gerald Karaguni). Do we add them all at seed time, or add them incrementally?
-4. **`linked_projects` unresolved-name strategy.** If the backfill finds a note with `linked_projects = "Braska's Pilgrimage"` and Braska's Pilgrimage IS in real SoY, it resolves. If it says `linked_projects = "Something Weird"` and nothing matches, do we (a) log and skip, (b) create a stub project, or (c) prompt for resolution?
-5. **Benchmark tier scope for re-run.** Do we re-run all four tiers (Mistral, Qwen 14B, Qwen3 30B, Claude) or just Claude + Qwen 14B (the tiers where loci mattered)? Cheaper is the latter; more complete is the former.
-6. **Schema file location.** Should the DDL live at `data/next_soy/schema/001_next_soy_core.sql` or somewhere else? Follow real SoY's migration numbering convention, or start fresh?
+1. ~~**`daily_logs` seed strategy.**~~ **RESOLVED.** Empty at V1 seed time. Real writing produces more valuable mention-resolution signal than synthetic backfill. The `daily_logs` table will exist with zero rows after seeding; loci_v2 must gracefully handle the empty case (no daily-logs slot in the output).
+2. **Seed episodes list.** Four episodes locked in: "Operator intelligence layer," "VO career 2026 push," "Axe throwing day job," "James's estate planning 2026." The fourth includes Dico as an artifact member per Q7.
+3. ~~**New contact additions.**~~ **RESOLVED** by `seed_contact_audit.md`. Fifteen primary contacts for status='active' (plus Dico as sixteenth, added via Q7), four status flags (two broadcast_only, eight prospects, one inactive — Kerry's "former Demac" state, now flipped to active via the promotion). Three edge-only non-contacts (Elana's agents + group-thread members). One hand-update to promote Kerry Morrison from the ghost record.
+4. ~~**`linked_projects` unresolved-name strategy.**~~ **RESOLVED.** Log-and-skip. Unresolved names go to `seed_unresolved.log` with the source note id and the unresolved text. No stub project creation, no interactive prompting. The log is a manual review artifact; the seed run completes without blocking.
+5. ~~**Benchmark tier scope for re-run.**~~ **RESOLVED.** Claude Opus + Qwen 14B only. These are the two tiers where the initial benchmark showed loci having signal (Claude marginal, Qwen 14B sweet spot). Re-running Mistral and Qwen3 30B against a richer schema just re-measures models that already told us what we needed (catastrophic loss and anomaly, respectively). Saves ~50% of benchmark runtime.
+6. ~~**Schema file location.**~~ **RESOLVED.** `benchmarks/loci/next_soy_schema/001_core.sql`. Co-located with the experiment, numbered so future schema files can land alongside, and does not pollute the real SoY migration directory. The DB file lives at `benchmarks/loci/next_soy_schema/next_soy.db` (generated, gitignored).
+7. ~~**"Dico" resolution.**~~ **RESOLVED.** Dico is Jim Somerville's holding company. Alex and Cameron Somerville are shareholders. Seeded as company-type contact with `owner_of` + two `shareholder_of` edges. Alex's reply "no intention of exiting Dico" becomes queryable via the edges.
+8. ~~**Kerry's `kerry@softwareof.you` address.**~~ **RESOLVED.** Confirmed as one of Kerry's addresses. Both `kmo@betterstory.co` and `kerry@softwareof.you` go into `contact_identities` against Kerry's canonical (promoted) contact record. Side-effect: Kerry is an early external SoY user, worth remembering for future multi-tenancy considerations but nothing v1 needs to change.
 
-None of these block committing this DDL doc for review. They block the seed script.
+The DDL is locked. Next deliverable is `benchmarks/loci/seed_next_soy.py`.
 
 ---
 

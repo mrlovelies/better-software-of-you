@@ -1,0 +1,650 @@
+{
+  "run_id": "20260412_014150",
+  "batch": 1,
+  "entries": [
+    {
+      "id": "R1__A",
+      "prompt_id": "R1",
+      "arm_id": "A",
+      "bucket": "recall",
+      "question": "What payment provider did I decide to use for The Grow App, and why?",
+      "gold_facts": [
+        "Stripe was chosen over Shopify",
+        "Decision logged as decision id 3 on 2026-03-02",
+        "Linked to The Grow App project (project id 1) and Jessica Martin (contact id 1)",
+        "An honest answer either includes the rationale from the decision record or states that the rationale field doesn't contain detail beyond the choice itself"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Inventing a rationale not present in the database (e.g., specific Shopify limitations not mentioned in the decision record)",
+        "Naming any provider other than Stripe"
+      ],
+      "context": "## CONTACTS (2)\n- Jessica Martin (id 1, Client / Founder at The Grow App)\n- Alex Somerville (id 35, user / self at ?)\n\n## PROJECTS (5)\n- The Grow App (id 1, active, high priority, target 2026-07-01)\n- Specsite (id 206, active, medium priority)\n- Axe Scoring App (id 208, paused, low priority)\n- Reprise (id 210, active, high priority)\n- Harvest Dashboard (id 216, active, medium priority)\n\n## DECISIONS (9)\n- Defer item restrictions by postal code (id 4, decided 2026-03-04)\n    rationale: Jessica reconsidered: \"if there are more shoppers than growers, it would not matter if all growers are growing kale.\" Market saturation may self-correct.\n- FB Marketplace-style geo privacy (id 6, decided 2026-03-12)\n    rationale: Adapts proven FB Marketplace pattern for hyperlocal context. Tighter search radius (1/5/10/25 km). Jessica responded positively, raised question about dropping postal codes entirely.\n- Trust-based authentication (id 1, decided 2026-03-04)\n    rationale: Jessica philosophy: users should not be afraid to fail or be penalized. Verification adds friction that would hurt early adoption for a soft launch.\n- Stripe over Shopify for payments (id 3, decided 2026-03-02)\n    rationale: Stripe is lighter weight, lower overhead, direct integration. No need for full ecommerce platform for a single membership product.\n- Embed fact details, not full threads (id 11, decided 2026-03-08)\n    rationale: Dramatically better retrieval precision vs embedding entire conversation threads.\n- Ollama serial request queue (id 13, decided 2026-03-08)\n    rationale: Ollama can only serve one model at a time. Model-swap during concurrent calls causes server errors. All work is sequential.\n- Visual-only audio player (no actual files) (id 34, decided 2026-03-06)\n    rationale: Placeholder until actual demo reel recordings are uploaded. Prevents broken audio controls on live site.\n- League detection: drop isZoneWide requirement (id 40, decided 2026-03-15)\n    rationale: Staff enter leagues as a single lane (e.g. \"BLACK 1\") with merged cells spanning 4 rows, not \"BLACK WHOLE\". The API only returns the value in the first cell of a merge, so isZoneWide was never true fo\n- Paywall scope refined \u2014 Shop tab paywalled, News/About/Membership free (id 41, decided 2026-04-10)\n    rationale: Client (Jessica) refined the original Milestone 2 scope in her Apr 10 2026 email. Previous Task 12 description said \"Gates user profile + shopping cart. News/blog stays public\" \u2014 this is now explicitl\n\n## NOTES_V2S (6)\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- SoY loci layer \u2014 graph traversal for context assembly (id 31)\n    ## SoY loci layer \u2014 architectural concept  Originated in a Discord conversation 2026-04-09/10 sparked by Milla Jovovich's \"MemPalace\" launch. The bot claimed to save this note at the time but the call\n- AloneinaBar Repo: claude-code-unlocked (id 27)\n    Free 16-lesson Claude Code course  content marketing funnel for BetterStory consulting. Only PUBLIC repo in the org.  **Tech:** Astro static site on Vercel. Lessons generated using Claude API via brow\n- Offline-first scoring architecture (id 29)\n    Run local Node/Express server on Raspberry Pi or repurposed device; creates own WiFi AP or uses venue LAN; all scoring clients connect via local IP; scores queue locally with timestamps and sync to cl\n- Reprise product vision \u2014 cognitive offloading counter-tool (id 30)\n    Reprise is Alex's deliberate counter to cognitive offloading. As AI handles more cognitive tasks, critical thinking atrophies. Reprise rewires the brain to stay informed and capable even while delegat\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n\n## INTERACTIONS (2)\n- inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n    Jessica responded positively to the Apr 8 staging update. Loved the shop tab and generic produce naming. Two new asks: (1) ability to share curated external gardening videos to the News feed \u2014 scoping\n- inbound call: Voice call \u2014 booked (57s) (2026-04-09)\n    Carrie successfully booked an appointment with Alex Summerville's virtual assistant for Friday, April 10th at 2 PM. The assistant confirmed the availability and finalized the booking after getting Car\n\n## EMAILS (10)\n- Failed preview deployments on team 'Alex's projects' (2026-04-08)\n    Hi jalexsomerville-1690, There were 2 deployments with errors on Alex&#39;s projects. Deployment kd2zmqy9r on the-grow-app Deployment acbivctya on the-grow-app-v56p You can also view latest deployment\n- The Grow App \u2014 big staging update (2026-04-08)\n    Hey Jess, Been a minute! Easter got crazy. Kids. Chocolate. The works. Wanted to give you a heads up \u2014 there&#39;s a major update on the staging site for whenever you get a chance to poke at it. No\n- James, youre eligible for a line of credit! (2026-03-12)\n    Get access for up to $15000 Borrowell logo Hi, James My credit report You&#39;re in control, you decide when and how much to draw, unlike a traditional loan. Interest only on what you use Fully online\n- Pizza pizza Limited: $94.09CAD (2026-03-12)\n    Authorized with Pizza pizza Limited. Hello, Alex Somerville You authorized $94.09 CAD to Pizza pizza Limited Merchant Pizza pizza Limited Transaction date Mar 12, 2026 View Payment Details Subtotal\n- [Personal] Your Thursday evening trip with Uber (2026-03-12)\n    Mar 12, 2026 5:33 pm Mar 12, 2026 , 5:33 pm Thanks for riding, Alex We hope you enjoyed your ride this evening. Total $10.07 $0.40 Uber One credits earned Trip fare $11.33 Est. insurance and payments\n- Re: Grow App  Map/Geolocation implementation (2026-03-12)\n    Hi Alex, Geo-tracking: Lots of great insight here. I think we&#39;re getting very close to a solution. However, I don&#39;t think overlapping of circles will be an issue if the functionality of the\n- Shared from BBC: Claude Code users hitting usage limits 'way faster than expected' (2026-04-01)\n    Check this out from the BBC: https://bbc.com/news/articles/ce8l2q5yq51o\n- [Personal] Your Monday evening trip with Uber (2026-03-30)\n    Mar 30, 2026 6:09 pm Mar 30, 2026 , 6:09 pm Thanks for riding, Alex We hope you enjoyed your ride this evening. Total $20.03 $0.85 Uber One credits earned Trip fare $18.94 Est. insurance and payments\n- CNN content share (2026-04-09)\n    Check out this article: https://www.cnn.com/2026/04/09/tech/meta-ai-model-muse-spark\n- Re: A process thought (2026-04-06)\n    Wed is perfect Alex! Look forward to lunch ribs! On Mon, Apr 6, 2026 at 11:58 AM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Hey dad, I&#39;m going to be talking re: the batl app with",
+      "context_chars": 7017,
+      "metadata": {
+        "tables_searched": [
+          "contacts",
+          "projects",
+          "decisions",
+          "notes_v2",
+          "contact_interactions",
+          "emails"
+        ],
+        "tables_with_results": [
+          "contact",
+          "project",
+          "decision",
+          "notes_v2",
+          "interaction",
+          "email"
+        ],
+        "total_rows": 34,
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "R1__B",
+      "prompt_id": "R1",
+      "arm_id": "B",
+      "bucket": "recall",
+      "question": "What payment provider did I decide to use for The Grow App, and why?",
+      "gold_facts": [
+        "Stripe was chosen over Shopify",
+        "Decision logged as decision id 3 on 2026-03-02",
+        "Linked to The Grow App project (project id 1) and Jessica Martin (contact id 1)",
+        "An honest answer either includes the rationale from the decision record or states that the rationale field doesn't contain detail beyond the choice itself"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Inventing a rationale not present in the database (e.g., specific Shopify limitations not mentioned in the decision record)",
+        "Naming any provider other than Stripe"
+      ],
+      "context": "## CONTACTS (2)\n- Jessica Martin (id 1, Client / Founder at The Grow App)\n- Alex Somerville (id 35, user / self at ?)\n\n## PROJECTS (5)\n- The Grow App (id 1, active, high priority, target 2026-07-01)\n- Specsite (id 206, active, medium priority)\n- Axe Scoring App (id 208, paused, low priority)\n- Reprise (id 210, active, high priority)\n- Harvest Dashboard (id 216, active, medium priority)\n\n## DECISIONS (9)\n- Defer item restrictions by postal code (id 4, decided 2026-03-04)\n    rationale: Jessica reconsidered: \"if there are more shoppers than growers, it would not matter if all growers are growing kale.\" Market saturation may self-correct.\n- FB Marketplace-style geo privacy (id 6, decided 2026-03-12)\n    rationale: Adapts proven FB Marketplace pattern for hyperlocal context. Tighter search radius (1/5/10/25 km). Jessica responded positively, raised question about dropping postal codes entirely.\n- Trust-based authentication (id 1, decided 2026-03-04)\n    rationale: Jessica philosophy: users should not be afraid to fail or be penalized. Verification adds friction that would hurt early adoption for a soft launch.\n- Stripe over Shopify for payments (id 3, decided 2026-03-02)\n    rationale: Stripe is lighter weight, lower overhead, direct integration. No need for full ecommerce platform for a single membership product.\n- Embed fact details, not full threads (id 11, decided 2026-03-08)\n    rationale: Dramatically better retrieval precision vs embedding entire conversation threads.\n- Ollama serial request queue (id 13, decided 2026-03-08)\n    rationale: Ollama can only serve one model at a time. Model-swap during concurrent calls causes server errors. All work is sequential.\n- Visual-only audio player (no actual files) (id 34, decided 2026-03-06)\n    rationale: Placeholder until actual demo reel recordings are uploaded. Prevents broken audio controls on live site.\n- League detection: drop isZoneWide requirement (id 40, decided 2026-03-15)\n    rationale: Staff enter leagues as a single lane (e.g. \"BLACK 1\") with merged cells spanning 4 rows, not \"BLACK WHOLE\". The API only returns the value in the first cell of a merge, so isZoneWide was never true fo\n- Paywall scope refined \u2014 Shop tab paywalled, News/About/Membership free (id 41, decided 2026-04-10)\n    rationale: Client (Jessica) refined the original Milestone 2 scope in her Apr 10 2026 email. Previous Task 12 description said \"Gates user profile + shopping cart. News/blog stays public\" \u2014 this is now explicitl\n\n## NOTES_V2S (6)\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- SoY loci layer \u2014 graph traversal for context assembly (id 31)\n    ## SoY loci layer \u2014 architectural concept  Originated in a Discord conversation 2026-04-09/10 sparked by Milla Jovovich's \"MemPalace\" launch. The bot claimed to save this note at the time but the call\n- AloneinaBar Repo: claude-code-unlocked (id 27)\n    Free 16-lesson Claude Code course  content marketing funnel for BetterStory consulting. Only PUBLIC repo in the org.  **Tech:** Astro static site on Vercel. Lessons generated using Claude API via brow\n- Offline-first scoring architecture (id 29)\n    Run local Node/Express server on Raspberry Pi or repurposed device; creates own WiFi AP or uses venue LAN; all scoring clients connect via local IP; scores queue locally with timestamps and sync to cl\n- Reprise product vision \u2014 cognitive offloading counter-tool (id 30)\n    Reprise is Alex's deliberate counter to cognitive offloading. As AI handles more cognitive tasks, critical thinking atrophies. Reprise rewires the brain to stay informed and capable even while delegat\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n\n## INTERACTIONS (2)\n- inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n    Jessica responded positively to the Apr 8 staging update. Loved the shop tab and generic produce naming. Two new asks: (1) ability to share curated external gardening videos to the News feed \u2014 scoping\n- inbound call: Voice call \u2014 booked (57s) (2026-04-09)\n    Carrie successfully booked an appointment with Alex Summerville's virtual assistant for Friday, April 10th at 2 PM. The assistant confirmed the availability and finalized the booking after getting Car\n\n## EMAILS (10)\n- Failed preview deployments on team 'Alex's projects' (2026-04-08)\n    Hi jalexsomerville-1690, There were 2 deployments with errors on Alex&#39;s projects. Deployment kd2zmqy9r on the-grow-app Deployment acbivctya on the-grow-app-v56p You can also view latest deployment\n- The Grow App \u2014 big staging update (2026-04-08)\n    Hey Jess, Been a minute! Easter got crazy. Kids. Chocolate. The works. Wanted to give you a heads up \u2014 there&#39;s a major update on the staging site for whenever you get a chance to poke at it. No\n- James, youre eligible for a line of credit! (2026-03-12)\n    Get access for up to $15000 Borrowell logo Hi, James My credit report You&#39;re in control, you decide when and how much to draw, unlike a traditional loan. Interest only on what you use Fully online\n- Pizza pizza Limited: $94.09CAD (2026-03-12)\n    Authorized with Pizza pizza Limited. Hello, Alex Somerville You authorized $94.09 CAD to Pizza pizza Limited Merchant Pizza pizza Limited Transaction date Mar 12, 2026 View Payment Details Subtotal\n- [Personal] Your Thursday evening trip with Uber (2026-03-12)\n    Mar 12, 2026 5:33 pm Mar 12, 2026 , 5:33 pm Thanks for riding, Alex We hope you enjoyed your ride this evening. Total $10.07 $0.40 Uber One credits earned Trip fare $11.33 Est. insurance and payments\n- Re: Grow App  Map/Geolocation implementation (2026-03-12)\n    Hi Alex, Geo-tracking: Lots of great insight here. I think we&#39;re getting very close to a solution. However, I don&#39;t think overlapping of circles will be an issue if the functionality of the\n- Shared from BBC: Claude Code users hitting usage limits 'way faster than expected' (2026-04-01)\n    Check this out from the BBC: https://bbc.com/news/articles/ce8l2q5yq51o\n- [Personal] Your Monday evening trip with Uber (2026-03-30)\n    Mar 30, 2026 6:09 pm Mar 30, 2026 , 6:09 pm Thanks for riding, Alex We hope you enjoyed your ride this evening. Total $20.03 $0.85 Uber One credits earned Trip fare $18.94 Est. insurance and payments\n- CNN content share (2026-04-09)\n    Check out this article: https://www.cnn.com/2026/04/09/tech/meta-ai-model-muse-spark\n- Re: A process thought (2026-04-06)\n    Wed is perfect Alex! Look forward to lunch ribs! On Mon, Apr 6, 2026 at 11:58 AM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Hey dad, I&#39;m going to be talking re: the batl app with\n\n# Expanded contact profiles\n\n## Profile: Jessica Martin (id 1)\nCompany: The Grow App\nRole: Client / Founder\nEmail: msjessmartin@outlook.com\n\n### Projects (as client) (1)\n- The Grow App [active, high priority]\n\n### Interactions (1)\n- inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n    Jessica responded positively to the Apr 8 staging update. Loved the shop tab and generic produce naming. Two new asks: (1) ability to share curated external gardening videos to the News feed \u2014 scoping\n\n### Emails (4)\n- The Grow App \u2014 big staging update (2026-04-08)\n    Hey Jess, Been a minute! Easter got crazy. Kids. Chocolate. The works. Wanted to give you a heads up \u2014 there&#39;s a major update on the staging site for whenever you get a chance to poke at it. No\n- Re: Gmail access and Mailchimp updates (2026-04-01)\n    Hi Alex, Sorry for the delayed response. Had to finalize my taxes and still working on never ending Parenting Plan negotiations ahead of Easter *sigh I \n\n[context truncated at 8000 chars; 1157 more chars omitted]",
+      "context_chars": 8060,
+      "metadata": {
+        "tables_with_results": [
+          "contact",
+          "project",
+          "decision",
+          "notes_v2",
+          "interaction",
+          "email"
+        ],
+        "total_flat_rows": 34,
+        "profiles_expanded": 2,
+        "profiled_contact_ids": [
+          1,
+          35
+        ],
+        "loci_version": 2,
+        "truncated": true,
+        "original_chars": 9157,
+        "truncated_at": 8000
+      }
+    },
+    {
+      "id": "R1__C",
+      "prompt_id": "R1",
+      "arm_id": "C",
+      "bucket": "recall",
+      "question": "What payment provider did I decide to use for The Grow App, and why?",
+      "gold_facts": [
+        "Stripe was chosen over Shopify",
+        "Decision logged as decision id 3 on 2026-03-02",
+        "Linked to The Grow App project (project id 1) and Jessica Martin (contact id 1)",
+        "An honest answer either includes the rationale from the decision record or states that the rationale field doesn't contain detail beyond the choice itself"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Inventing a rationale not present in the database (e.g., specific Shopify limitations not mentioned in the decision record)",
+        "Naming any provider other than Stripe"
+      ],
+      "context": "# next_soy loci brief \u2014 'What payment provider did I decide to use for The Grow App, and why?'\n# 60 entities \u00b7 depth 2 \u00b7 50 edges walked \u00b7 types: calendar_event, contact, contact_interaction, decision, email, memory_episode, project, project_task\n\n## Episode: James's estate planning 2026 (active since 2026-01-28)\n\nJim Somerville's estate planning thread \u2014 'Will ideas to be discussed' (Jan 28), 'Will ideas Rev 2' (Jan 29), 'Time for a Will' (Mar 28). Inner cc circle: Cameron, Ainslie, Anna Lee, Alex. Alex's reply 'I have no intention of exiting Dico' anchors the shareholder position.\n\nMembers in view:\n  - Anna Lee (witness)\n  - Alex Somerville \u2014 user / self (member)\n  - Jim Somerville \u2014 father / advisor (protagonist)\n  - Cameron Somerville \u2014 family (brother) (member)\n  - Ainslie Roberts \u2014 family (member)\n  - Dico \u2014 holding company at Dico (artifact)\n\n## Episode: Axe throwing day job (active since 2025-01-01)\n\nThe ambient employment context around Alex's work at BATL Axe Throwing \u2014 HR, T4 tips, employment agreement, shift-related signal. Distinct from the BATL Lane Command project, which is Alex's private ops-intelligence build for the same employer.\n\nMembers in view:\n  - Alex Somerville \u2014 user / self (protagonist)\n  - Shauna (BATL HR) \u2014 HR at BATL Axe Throwing (witness)\n  - BATL Axe Throwing \u2014 employer at BATL Axe Throwing (setting)\n\n## Episode: VO career 2026 push (active since 2026-01-01)\n\nDemo production with James Andrews, ongoing Jackie Warden auditions, Elana's and Ivan's site builds, the us-vo-agent-pursuit project, and the ACTRA Game Expo volunteer work. A concentrated period of VO career investment in Q1 2026.\n\nMembers in view:\n  - Jackie Warden \u2014 Talent Agent at Warden Talent (protagonist)\n  - James Andrews \u2014 VO Coach / Demo Producer at James Andrews Talent Services (protagonist)\n  - Elana Dunkelman \u2014 Actor / Writer at ACTRA Toronto (protagonist)\n  - elana-dunkelman-vo [active] (setting)\n\n## Jessica Martin \u2014 Client / Founder at The Grow App\n\nClient for The Grow App. Phase 1 contract $3,750 ($1,250 deposit received). Pitch deadline July 2026.\n\nRelated:\n  - Email: Re: Grow App  Map/Geolocation implementation (2026-03-12) [email_with \u2190 reverse]\n  - Email: Re: Gmail access and Mailchimp updates (2026-04-01) [email_with \u2190 reverse]\n  - Email: Re: Gmail access and Mailchimp updates (2026-03-31) [email_with \u2190 reverse]\n  - Email: The Grow App \u2014 big staging update (2026-04-08) [email_with \u2190 reverse]\n  - Event: Video Call  Alex & Jess (2026-03-11T13:00) [event_with \u2190 reverse]\n  - Decision: Defer Priority Notifications (2026-03-03) [involves_contact \u2190 reverse]\n      Proposed 48-hour early harvest alerts for growers before general public. \u00b7 Decision: Deferred to 2027  not needed until robust member base exists. \u00b7 Rationale: \n  - Decision: Stripe over Shopify for payments (2026-03-02) [involves_contact \u2190 reverse]\n      Need payment integration for $10 annual membership fee. Shopify or Stripe? \u00b7 Decision: Stripe Checkout  much leaner than going through Shopify. \u00b7 Rationale: Str\n  - Decision: Vercel hosting + GoDaddy domain (2026-03-02) [involves_contact \u2190 reverse]\n      Need hosting infrastructure for the app. \u00b7 Decision: Keep domain at GoDaddy, point app to Vercel for hosting. \u00b7 Rationale: Vercel is lightning-fast, secure, and\n\n## inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n\n  (no related entities in budget)\n\n## Decision: Trust-based authentication (2026-03-04)\n\nNeed to determine how to verify growers vs shoppers. Do growers need to prove they are growing? \u00b7 Decision: Trust them  no verification required. The app will be a \"safe space\" where good intentions are enough. \u00b7 Rationale: Jessica philosophy: users should not be afraid to fail or be penalized. Verification adds friction that would hurt early adoption for a soft launch.\n\n  (no related entities in budget)\n\n## Decision: Defer item restrictions by postal code (2026-03-04)\n\nJessica originally wanted to restrict what people can grow per postal code to ensure variety. \u00b7 Decision: Deferred  let variety happen organically. Build the structure so it can be enabled later. \u00b7 Rationale: Jessica reconsidered: \"if there are more shoppers than growers, it would not matter if all growers are growing kale.\" Market saturation may self-correct.\n\n  (no related entities in budget)\n\n## Email: James, youre eligible for a line of credit! (2026-03-12)\n\n  (no related entities in budget)\n\n## The Grow App [active] target 2026-07-01\n\nCommunity-driven produce sharing platform  \"Virtual Community Garden\" network. Growers list crops on a map; shoppers discover nearby harvests. Next.js 16, React 19, Leaflet, TypeScript. Deployed to Vercel (thegrowapp.ca). Phase 1 budget $3,750 dev + $1,250 design reserve. Women4ClimateTO pitch compe\n\nRelated:\n  - Task: Landing page  swap hero image [todo] [belongs_to_project \u2190 reverse]\n  - Task: Landing page  mobile text spacing [todo] [belongs_to_project \u2190 reverse]\n  - Task: Landing page  update copy [todo] [belongs_to_project \u2190 reverse]\n  - Task: Mailchimp integration [blocked] [belongs_to_project \u2190 reverse]\n  - Task: Google Workspace setup [blocked] [belongs_to_project \u2190 reverse]\n\n## Anna Lee\n\nSent e-transfer payment of $3,730 ($3,000 + $730). Personal/family contact.\n\nRelated:\n  - Email: RE: Hey - a thought (2026-03-12) [email_with \u2190 reverse]\n  - Email: Re: Consultant's Invoice - April 2026 (2026-04-02) [email_with \u2190 reverse]\n  - Email: RE: Consultant's Invoice - April 2026 (2026-04-02) [email_with \u2190 reverse]\n  - Email: Consultant's Invoice - April 2026 (2026-04-01) [email_with \u2190 reverse]\n  - Jim Somerville \u2014 father / advisor [cc_regular_of \u2190 reverse]\n  - Chris Graham \u2014 advisor / Reprise business contact at Constellation HB [cc_regular_of]\n\n## Alex Somerville \u2014 user / self\n\nThe user. Voice actor, dev, Toronto. Primary SoY account holder.\n\nRelated:\n  - elana-dunkelman-vo [active] [client_of \u2190 reverse]\n  - Email: Website stuff (2026-03-24) [email_with \u2190 reverse]\n  - Elana Dunkelman \u2014 Actor / Writer at ACTRA Toronto [building_site_for]\n  - Ivan Sherry \u2014 VO coach / site client [building_site_for]\n  - Jon McLaren \u2014 client / ACTRA peer [building_site_for]\n  - Craig Burnatowski \u2014 client / ACTRA peer [building_site_for]\n  - Kerry Morrison \u2014 SoY collaborator / dev peer / close friend at Better Story [close_friend_of]\n  - Cameron Somerville \u2014 family (brother) [family_of]\n  - Ainslie Roberts \u2014 family [family_of]\n  - Gerald Karaguni \u2014 neighbor [neighbor_of]\n  - Dico \u2014 holding company at Dico [shareholder_of]\n  - BATL Axe Throwing \u2014 employer at BATL Axe Throwing [works_at]\n  - Jackie Warden \u2014 Talent Agent at Warden Talent [books_for \u2190 reverse]\n  - James Andrews \u2014 VO Coach / Demo Producer at James Andrews Talent Services [mentor_of \u2190 reverse]\n  - Jason Thomas \u2014 voice agent at (Elana's voice agent) [represented_by]\n\n## Alison Little \u2014 principal agent at (Elana's principal agent)\n\nThin row. No direct correspondence \u2014 appears only in Elana's email signature. Held here so Elana\u2192represented_by edge has a target.\n\n  (no related entities in budget)\n\n## inbound call: Voice call \u2014 booked (57s) (2026-04-09)\n\nRelated:\n  - Caller +14167717490 [interaction_with]\n\n\n---\nStats: 60 nodes, 50 edges walked, 8 entity types, 3 episodes touched.",
+      "context_chars": 7226,
+      "metadata": {
+        "total_nodes": 60,
+        "edges_walked": 50,
+        "max_depth_reached": 2,
+        "entity_types_touched": [
+          "calendar_event",
+          "contact",
+          "contact_interaction",
+          "decision",
+          "email",
+          "memory_episode",
+          "project",
+          "project_task"
+        ],
+        "seed_count": 10,
+        "episodes_touched": 3,
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "R2__A",
+      "prompt_id": "R2",
+      "arm_id": "A",
+      "bucket": "recall",
+      "question": "What did I decide about model selection for ARIA, and why?",
+      "gold_facts": [
+        "Decision id 12 (2026-03-08): gemma3:4b over gemma3:12b",
+        "Decision id 13 (2026-03-08): Ollama serial request queue",
+        "Both decisions tied to the ARIA project (project id 205)",
+        "Other ARIA decisions in the same window touch related infrastructure (id 8 Companion server over sql.js/WASM, id 9 Streaming generation mandatory, id 10 Conflict detection threshold at 0.5, id 11 Embed fact details not full threads) \u2014 surfacing these as related context is valid but not required"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Inventing performance numbers or benchmarks not in the decision record",
+        "Confusing ARIA decisions with The Grow App or other projects"
+      ],
+      "context": "## PROJECTS (2)\n- ARIA (id 205, active, high priority)\n- paperclip-research (id 214, active, medium priority)\n\n## DECISIONS (4)\n- Embed fact details, not full threads (id 11, decided 2026-03-08)\n    rationale: Dramatically better retrieval precision vs embedding entire conversation threads.\n- gemma3:4b over gemma3:12b (id 12, decided 2026-03-08)\n    rationale: Reduced from 12b for latency. 4b adequate for fact extraction and conflict reasoning. 2-4 min per generation on M4 MacBook Air.\n- Ollama serial request queue (id 13, decided 2026-03-08)\n    rationale: Ollama can only serve one model at a time. Model-swap during concurrent calls causes server errors. All work is sequential.\n- Templates over AI-generated HTML (id 24, decided 2026-02-01)\n    rationale: QA-able, fast, removes LLM variability. Templates are version-controlled and testable.\n\n## NOTES_V2S (5)\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n- Feedback  Version A feels heavy-handed in exposition; lines like \"salt of a place that didn't exist on any map he'd studied\" over-explain rather than evoke. Didn't land as strongly as The Wrong Chair versions. (id 2)\n    The Third Variable feedback, Version A\n- Writing Module  MacBook CLI build (id 5)\n    Building a SoY writing module with integrated edit mode and feedback mode. Context imported last night (The Third Variable, The Wrong Chair, 3 POV drafts each). Full session notes to be logged from Ma\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- SoY loci layer \u2014 graph traversal for context assembly (id 31)\n    ## SoY loci layer \u2014 architectural concept  Originated in a Discord conversation 2026-04-09/10 sparked by Milla Jovovich's \"MemPalace\" launch. The bot claimed to save this note at the time but the call\n\n## EMAILS (4)\n- James, youre eligible for a line of credit! (2026-03-12)\n    Get access for up to $15000 Borrowell logo Hi, James My credit report You&#39;re in control, you decide when and how much to draw, unlike a traditional loan. Interest only on what you use Fully online\n- Pizza Pizza Order Confirmation (2026-03-12)\n    ORDER CONFIRMATION Thank you for ordering with Pizza Pizza! We love your selections and hope you do too! Here are the details of your order in case you need a reminder. Your order is guaranteed to be\n- Missing 3D Modeling Skills? (2026-03-13)\n    Check our New Bundle                                                                                          \n- CNN content share (2026-04-09)\n    Check out this article: https://www.cnn.com/2026/04/09/tech/meta-ai-model-muse-spark",
+      "context_chars": 2980,
+      "metadata": {
+        "tables_searched": [
+          "contacts",
+          "projects",
+          "decisions",
+          "notes_v2",
+          "contact_interactions",
+          "emails"
+        ],
+        "tables_with_results": [
+          "project",
+          "decision",
+          "notes_v2",
+          "email"
+        ],
+        "total_rows": 15,
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "R2__B",
+      "prompt_id": "R2",
+      "arm_id": "B",
+      "bucket": "recall",
+      "question": "What did I decide about model selection for ARIA, and why?",
+      "gold_facts": [
+        "Decision id 12 (2026-03-08): gemma3:4b over gemma3:12b",
+        "Decision id 13 (2026-03-08): Ollama serial request queue",
+        "Both decisions tied to the ARIA project (project id 205)",
+        "Other ARIA decisions in the same window touch related infrastructure (id 8 Companion server over sql.js/WASM, id 9 Streaming generation mandatory, id 10 Conflict detection threshold at 0.5, id 11 Embed fact details not full threads) \u2014 surfacing these as related context is valid but not required"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Inventing performance numbers or benchmarks not in the decision record",
+        "Confusing ARIA decisions with The Grow App or other projects"
+      ],
+      "context": "## PROJECTS (2)\n- ARIA (id 205, active, high priority)\n- paperclip-research (id 214, active, medium priority)\n\n## DECISIONS (4)\n- Embed fact details, not full threads (id 11, decided 2026-03-08)\n    rationale: Dramatically better retrieval precision vs embedding entire conversation threads.\n- gemma3:4b over gemma3:12b (id 12, decided 2026-03-08)\n    rationale: Reduced from 12b for latency. 4b adequate for fact extraction and conflict reasoning. 2-4 min per generation on M4 MacBook Air.\n- Ollama serial request queue (id 13, decided 2026-03-08)\n    rationale: Ollama can only serve one model at a time. Model-swap during concurrent calls causes server errors. All work is sequential.\n- Templates over AI-generated HTML (id 24, decided 2026-02-01)\n    rationale: QA-able, fast, removes LLM variability. Templates are version-controlled and testable.\n\n## NOTES_V2S (5)\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n- Feedback  Version A feels heavy-handed in exposition; lines like \"salt of a place that didn't exist on any map he'd studied\" over-explain rather than evoke. Didn't land as strongly as The Wrong Chair versions. (id 2)\n    The Third Variable feedback, Version A\n- Writing Module  MacBook CLI build (id 5)\n    Building a SoY writing module with integrated edit mode and feedback mode. Context imported last night (The Third Variable, The Wrong Chair, 3 POV drafts each). Full session notes to be logged from Ma\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- SoY loci layer \u2014 graph traversal for context assembly (id 31)\n    ## SoY loci layer \u2014 architectural concept  Originated in a Discord conversation 2026-04-09/10 sparked by Milla Jovovich's \"MemPalace\" launch. The bot claimed to save this note at the time but the call\n\n## EMAILS (4)\n- James, youre eligible for a line of credit! (2026-03-12)\n    Get access for up to $15000 Borrowell logo Hi, James My credit report You&#39;re in control, you decide when and how much to draw, unlike a traditional loan. Interest only on what you use Fully online\n- Pizza Pizza Order Confirmation (2026-03-12)\n    ORDER CONFIRMATION Thank you for ordering with Pizza Pizza! We love your selections and hope you do too! Here are the details of your order in case you need a reminder. Your order is guaranteed to be\n- Missing 3D Modeling Skills? (2026-03-13)\n    Check our New Bundle                                                                                          \n- CNN content share (2026-04-09)\n    Check out this article: https://www.cnn.com/2026/04/09/tech/meta-ai-model-muse-spark",
+      "context_chars": 2980,
+      "metadata": {
+        "tables_with_results": [
+          "project",
+          "decision",
+          "notes_v2",
+          "email"
+        ],
+        "total_flat_rows": 15,
+        "profiles_expanded": 0,
+        "profiled_contact_ids": [],
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "R2__C",
+      "prompt_id": "R2",
+      "arm_id": "C",
+      "bucket": "recall",
+      "question": "What did I decide about model selection for ARIA, and why?",
+      "gold_facts": [
+        "Decision id 12 (2026-03-08): gemma3:4b over gemma3:12b",
+        "Decision id 13 (2026-03-08): Ollama serial request queue",
+        "Both decisions tied to the ARIA project (project id 205)",
+        "Other ARIA decisions in the same window touch related infrastructure (id 8 Companion server over sql.js/WASM, id 9 Streaming generation mandatory, id 10 Conflict detection threshold at 0.5, id 11 Embed fact details not full threads) \u2014 surfacing these as related context is valid but not required"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Inventing performance numbers or benchmarks not in the decision record",
+        "Confusing ARIA decisions with The Grow App or other projects"
+      ],
+      "context": "# next_soy loci brief \u2014 'What did I decide about model selection for ARIA, and why?'\n# 48 entities \u00b7 depth 2 \u00b7 38 edges walked \u00b7 types: contact, decision, email, notes_v2, project, project_task\n\n## ARIA [active]\n\nChrome Extension  local LLM-powered Gmail sidebar. React 19, Vite, Express + better-sqlite3 backend. Ollama for AI (gemma3). Privacy-first: all processing on localhost. No git remote configured.\n\nRelated:\n  - Task: Extension shell + Manifest V3 [done] [belongs_to_project \u2190 reverse]\n  - Task: Streaming chat with Ollama (gemma3:4b) [done] [belongs_to_project \u2190 reverse]\n  - Task: Gmail DOM thread extraction [done] [belongs_to_project \u2190 reverse]\n  - Task: Sidebar injection with slide animation [done] [belongs_to_project \u2190 reverse]\n  - Task: aria-server companion (Express + better-sqlite3) [done] [belongs_to_project \u2190 reverse]\n  - Decision: Companion server over sql.js/WASM (2026-03-06) [decided_in \u2190 reverse]\n      Chrome extension sandbox cannot run native Node modules like better-sqlite3 \u00b7 Decision: Express companion server on localhost:11435 \u00b7 Rationale: Follows same pa\n  - Decision: Streaming generation mandatory (2026-03-06) [decided_in \u2190 reverse]\n      Ollama with stream:false holds connection with no headers until done \u00b7 Decision: Always use stream:true, accumulate server-side \u00b7 Rationale: Node 20 fetch (undi\n  - Decision: Conflict detection threshold at 0.5 (2026-03-08) [decided_in \u2190 reverse]\n      Need to balance precision vs recall for memory conflict detection \u00b7 Decision: Cosine similarity threshold of 0.5  wider net, let LLM filter \u00b7 Rationale: Full th\n  - Note: Post-report informational tracks recommendation screen [mentions \u2190 reverse]\n      After first digest generation, show a screen recommending learning/interest tracks (UE5, React, voice acting, etc.) based on signals from the test generation  t\n  - Note: Cadence digest philosophy [mentions \u2190 reverse]\n      Digests are meant to \"top off\" or cement learnings from the previous day's work  \"Success happened and here's why, in plain English, that YOU understand.\"\n  - Note: Cadence tracks vision [mentions \u2190 reverse]\n      Tracks are broader knowledge topics, defaulting to what the user is actively working on, but should feel open to exploration  not limited to directly tangential\n  - Note: Cadence tracks in digest  UX direction [mentions \u2190 reverse]\n      \"Keep exploring\" section at bottom of digest (nudge strip). Evolved form: inline breadcrumbs linking concepts to tracks. Goal: incidental, non-intrusive, never \n  - Note: Cadence Nudge Strip spec [mentions \u2190 reverse]\n      Option A confirmed: single-line footer strip in digest. Muted styling, faint top border, one line max with icon + observed copy + link. Tracks can be static (fr\n\n## Decision: Embed fact details, not full threads (2026-03-08)\n\nNeed to decide what to embed for semantic search \u00b7 Decision: Store embeddings of specific decision sentences extracted by LLM \u00b7 Rationale: Dramatically better retrieval precision vs embedding entire conversation threads.\n\n  (no related entities in budget)\n\n## Decision: gemma3:4b over gemma3:12b (2026-03-08)\n\nNeed to balance model quality vs latency for local inference \u00b7 Decision: Hardened to gemma3:4b as primary model \u00b7 Rationale: Reduced from 12b for latency. 4b adequate for fact extraction and conflict reasoning. 2-4 min per generation on M4 MacBook Air.\n\n  (no related entities in budget)\n\n## Decision: Ollama serial request queue (2026-03-08)\n\nConcurrent requests to different models (embed + generate) cause 500 errors \u00b7 Decision: Serialize all Ollama calls through request queue in ollama.js \u00b7 Rationale: Ollama can only serve one model at a time. Model-swap during concurrent calls causes server errors. All work is sequential.\n\n  (no related entities in budget)\n\n## Decision: Templates over AI-generated HTML (2026-02-01)\n\nNeed to generate spec sites reliably and quickly \u00b7 Decision: Jinja2-style templates with {{variable}} slots, deterministic output \u00b7 Rationale: QA-able, fast, removes LLM variability. Templates are version-controlled and testable.\n\nRelated:\n  - Specsite [active] [decided_in]\n  - Task: Google Places API (New) discovery + scoring [done] [belongs_to_project \u2190 reverse]\n  - Task: Prospect scoring + lead temperature [done] [belongs_to_project \u2190 reverse]\n  - Task: Reddit enrichment for vibe signals [done] [belongs_to_project \u2190 reverse]\n  - Task: Vibe system (review-driven identity extraction) [done] [belongs_to_project \u2190 reverse]\n  - Task: Design token system (5 presets + geographic deconfliction) [done] [belongs_to_project \u2190 reverse]\n  - Decision: 5 design token presets + geographic deconfliction (2026-02-10) [decided_in \u2190 reverse]\n      Need visual variety across generated sites \u00b7 Decision: 5 palettes (warm-earthy, sharp-modern, classic-navy, fresh-green, bold-red) with no postal code duplicate\n  - Decision: Cloudflare D1 for deployment (2026-02-15) [decided_in \u2190 reverse]\n      Need hosting for generated spec sites \u00b7 Decision: Reuse existing soy-shared.pages.dev infrastructure \u00b7 Rationale: Zero cost, already configured, SQL-based page \n  - Decision: Places API (New) over legacy (2026-02-01) [decided_in \u2190 reverse]\n      Need business discovery data from Google \u00b7 Decision: Single POST call with field masks \u00b7 Rationale: Replaces two separate GET calls. Better response structure, \n  - Decision: Reviews 4+ stars only on display (2026-02-20) [decided_in \u2190 reverse]\n      Spec sites show real reviews as social proof \u00b7 Decision: Filter to 4-star minimum for displayed testimonials \u00b7 Rationale: Prevents embarrassing negative testimo\n  - Kerry Morrison \u2014 SoY collaborator / dev peer / close friend at Better Story [collaborator_on \u2190 reverse]\n  - Note: AloneinaBar Repo: better-websites [mentions \u2190 reverse]\n      Automated pipeline: discover businesses with bad websites  generate modern replacements  cold email old-vs-new comparison  sell $99/mo managed \"Automated Front \n\n## Email: James, youre eligible for a line of credit! (2026-03-12)\n\n  (no related entities in budget)\n\n## Email: Pizza Pizza Order Confirmation (2026-03-12)\n\n  (no related entities in budget)\n\n## Email: Missing 3D Modeling Skills? (2026-03-13)\n\n  (no related entities in budget)\n\n## Email: CNN content share (2026-04-09)\n\n  (no related entities in budget)\n\n## Note: Feedback  Version A feels heavy-handed in exposition; lines like \"salt of a place that didn't exist on any map he'd studied\" over-explain rather than evoke. Didn't land as strongly as The Wrong Chair versions.\n\nThe Third Variable feedback, Version A\n\nRelated:\n  - Task: Character profiles (Braska, Auron, Jecht  deep Ultimania-sourced) [done] [belongs_to_project \u2190 reverse]\n  - Task: Thematic framework (faith as architecture, cost of knowing) [done] [belongs_to_project \u2190 reverse]\n  - Task: POV structure determined (three-POV inversion, Jecht opacity) [done] [belongs_to_project \u2190 reverse]\n  - Task: Lore foundation (58 context entries across 10 types) [done] [belongs_to_project \u2190 reverse]\n  - Task: Narrative principles (8 core, weighted, evidence-backed) [done] [belongs_to_project \u2190 reverse]\n  - Decision: POV Inversion: Natives Perceiving the Outsider (2026-03-13) [decided_in \u2190 reverse]\n      FFX gives player Tidus outsider perspective. Novel needs different angle. \u00b7 Decision: Tell through Auron and Braska observing Jecht  Jecht never gets POV \u00b7 Rati\n  - Decision: Lore source hierarchy (2026-03-13) [decided_in \u2190 reverse]\n      Multiple FFX sources conflict  need authority order \u00b7 Decision: In-game > Environmental > Ultimania (with caveats) > Fan analysis \u00b7 Rationale: Ultimania is thir\n  - Decision: Braska knows the Calm is temporary (2026-03-13) [decided_in \u2190 reverse]\n      All summoners understand the Calm cycle  does Braska? \u00b7 Decision: Yes. His warmth is defiance, not peaceful acceptance. \u00b7 Rationale: Every kind gesture is shado\n  - Decision: Jecht Sphere: camera on watchers (2026-03-13) [decided_in \u2190 reverse]\n      How to handle the recording device as narrative frame \u00b7 D\n\n[context truncated at 8000 chars; 792 more chars omitted]",
+      "context_chars": 8059,
+      "metadata": {
+        "total_nodes": 48,
+        "edges_walked": 38,
+        "max_depth_reached": 2,
+        "entity_types_touched": [
+          "contact",
+          "decision",
+          "email",
+          "notes_v2",
+          "project",
+          "project_task"
+        ],
+        "seed_count": 10,
+        "episodes_touched": 0,
+        "loci_version": 2,
+        "truncated": true,
+        "original_chars": 8792,
+        "truncated_at": 8000
+      }
+    },
+    {
+      "id": "R3__A",
+      "prompt_id": "R3",
+      "arm_id": "A",
+      "bucket": "recall",
+      "question": "Do I have James Andrews' current email?",
+      "gold_facts": [
+        "Email: james@jamesandrewsvo.com",
+        "TWO contact records resolve to this email: id 7 (James Andrews Talent Services, VO Coach / Demo Producer) and id 9 (James Andrews VO, VO Demo Producer)",
+        "An honest answer flags the duplicate and notes that both records share the same email"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Returning only one record without acknowledging the duplicate",
+        "Inventing a different email address"
+      ],
+      "context": "## CONTACTS (1)\n- James Andrews (id 7, VO Coach / Demo Producer at James Andrews Talent Services)\n\n## PROJECTS (1)\n- elana-dunkelman-vo (id 212, active, high priority)\n\n## DECISIONS (2)\n- Ollama serial request queue (id 13, decided 2026-03-08)\n    rationale: Ollama can only serve one model at a time. Model-swap during concurrent calls causes server errors. All work is sequential.\n- Anonymous auth fallback (id 23, decided 2026-02-15)\n    rationale: Enables frictionless directory browsing. Anonymous session upgrades seamlessly to full account.\n\n## NOTES_V2S (5)\n- SoY loci layer \u2014 graph traversal for context assembly (id 31)\n    ## SoY loci layer \u2014 architectural concept  Originated in a Discord conversation 2026-04-09/10 sparked by Milla Jovovich's \"MemPalace\" launch. The bot claimed to save this note at the time but the call\n- Cadence  competitive landscape analysis (March 2026) (id 15)\n    ## Direct Competitors  **Pieces for Developers**  HIGHEST THREAT. OS-level Workstream Pattern Engine capturing context across IDE, browser, chat, docs. Local-first, privacy-focused. Closest architectu\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- AloneinaBar Repo: better-websites (id 25)\n    Automated pipeline: discover businesses with bad websites  generate modern replacements  cold email old-vs-new comparison  sell $99/mo managed \"Automated Front Desk\" service.  **Tech (planned):** Astr\n- AloneinaBar Repo: claude-code-unlocked (id 27)\n    Free 16-lesson Claude Code course  content marketing funnel for BetterStory consulting. Only PUBLIC repo in the org.  **Tech:** Astro static site on Vercel. Lessons generated using Claude API via brow\n\n## EMAILS (8)\n- Appointment Confirmation for Odie at Kew Beach Animal Hospital (2026-04-01)\n    Kew Beach Animal Hospital Dear Alex Somerville, This email is to confirm your appointment at Kew Beach Animal Hospital for Odie. Please review the appointment details below for accuracy: Reason for\n- Appointment Confirmation for Soda at Kew Beach Animal Hospital (2026-04-01)\n    Kew Beach Animal Hospital Dear Alex Somerville, This email is to confirm your appointment at Kew Beach Animal Hospital for Soda. Please review the appointment details below for accuracy: Reason for\n- Website tweaks (2026-04-05)\n    Hi!!! Hope you're having a lovely long weekend. 1. Header: -can we put Actor. Voice Artist. Writer (swap writer and voice artist) -add Gallery anchor 2. About: Elana Dunkelman brings instinct,\n- Creatine (2026-04-09)\n    &quot;Current evidence suggests that creatine monohydrate supplementation may confer beneficial effects on cognitive function in adults, particularly in the domains of memory, attention time, and\n- Re: Tomorrow (2026-04-07)\n    Perfect Alex! On Tue, Apr 7, 2026 at 4:20 PM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Honestly pick me up at 2. That&#39;ll give us plenty of time On Tue, Apr 7, 2026 at 4:11 PM Jame\n- Re: Tomorrow (2026-04-07)\n    Honestly pick me up at 2. That&#39;ll give us plenty of time On Tue, Apr 7, 2026 at 4:11 PM James Somerville &lt;jamescsomerville@gmail.com&gt; wrote: Perfect Alex, what time would you like me to pick\n- Re: Fence Project (2026-04-06)\n    Hey Alex, no worries, hope you feel better soon! We&#39;re slowly getting started right now. No need for anything yet, we&#39;re in the backyard currently. When you&#39;re available, if I can come to\n- Fwd: Bounteous EVP, Managing Director recently posted (2026-04-05)\n    ---------- Forwarded message --------- From: LinkedIn &lt;updates-noreply@linkedin.com&gt; Date: Sat, Apr 4, 2026 at 9:06 PM Subject: Bounteous EVP, Managing Director recently posted To: James",
+      "context_chars": 3848,
+      "metadata": {
+        "tables_searched": [
+          "contacts",
+          "projects",
+          "decisions",
+          "notes_v2",
+          "contact_interactions",
+          "emails"
+        ],
+        "tables_with_results": [
+          "contact",
+          "project",
+          "decision",
+          "notes_v2",
+          "email"
+        ],
+        "total_rows": 17,
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "R3__B",
+      "prompt_id": "R3",
+      "arm_id": "B",
+      "bucket": "recall",
+      "question": "Do I have James Andrews' current email?",
+      "gold_facts": [
+        "Email: james@jamesandrewsvo.com",
+        "TWO contact records resolve to this email: id 7 (James Andrews Talent Services, VO Coach / Demo Producer) and id 9 (James Andrews VO, VO Demo Producer)",
+        "An honest answer flags the duplicate and notes that both records share the same email"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Returning only one record without acknowledging the duplicate",
+        "Inventing a different email address"
+      ],
+      "context": "## CONTACTS (1)\n- James Andrews (id 7, VO Coach / Demo Producer at James Andrews Talent Services)\n\n## PROJECTS (1)\n- elana-dunkelman-vo (id 212, active, high priority)\n\n## DECISIONS (2)\n- Ollama serial request queue (id 13, decided 2026-03-08)\n    rationale: Ollama can only serve one model at a time. Model-swap during concurrent calls causes server errors. All work is sequential.\n- Anonymous auth fallback (id 23, decided 2026-02-15)\n    rationale: Enables frictionless directory browsing. Anonymous session upgrades seamlessly to full account.\n\n## NOTES_V2S (5)\n- SoY loci layer \u2014 graph traversal for context assembly (id 31)\n    ## SoY loci layer \u2014 architectural concept  Originated in a Discord conversation 2026-04-09/10 sparked by Milla Jovovich's \"MemPalace\" launch. The bot claimed to save this note at the time but the call\n- Cadence  competitive landscape analysis (March 2026) (id 15)\n    ## Direct Competitors  **Pieces for Developers**  HIGHEST THREAT. OS-level Workstream Pattern Engine capturing context across IDE, browser, chat, docs. Local-first, privacy-focused. Closest architectu\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- AloneinaBar Repo: better-websites (id 25)\n    Automated pipeline: discover businesses with bad websites  generate modern replacements  cold email old-vs-new comparison  sell $99/mo managed \"Automated Front Desk\" service.  **Tech (planned):** Astr\n- AloneinaBar Repo: claude-code-unlocked (id 27)\n    Free 16-lesson Claude Code course  content marketing funnel for BetterStory consulting. Only PUBLIC repo in the org.  **Tech:** Astro static site on Vercel. Lessons generated using Claude API via brow\n\n## EMAILS (8)\n- Appointment Confirmation for Odie at Kew Beach Animal Hospital (2026-04-01)\n    Kew Beach Animal Hospital Dear Alex Somerville, This email is to confirm your appointment at Kew Beach Animal Hospital for Odie. Please review the appointment details below for accuracy: Reason for\n- Appointment Confirmation for Soda at Kew Beach Animal Hospital (2026-04-01)\n    Kew Beach Animal Hospital Dear Alex Somerville, This email is to confirm your appointment at Kew Beach Animal Hospital for Soda. Please review the appointment details below for accuracy: Reason for\n- Website tweaks (2026-04-05)\n    Hi!!! Hope you're having a lovely long weekend. 1. Header: -can we put Actor. Voice Artist. Writer (swap writer and voice artist) -add Gallery anchor 2. About: Elana Dunkelman brings instinct,\n- Creatine (2026-04-09)\n    &quot;Current evidence suggests that creatine monohydrate supplementation may confer beneficial effects on cognitive function in adults, particularly in the domains of memory, attention time, and\n- Re: Tomorrow (2026-04-07)\n    Perfect Alex! On Tue, Apr 7, 2026 at 4:20 PM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Honestly pick me up at 2. That&#39;ll give us plenty of time On Tue, Apr 7, 2026 at 4:11 PM Jame\n- Re: Tomorrow (2026-04-07)\n    Honestly pick me up at 2. That&#39;ll give us plenty of time On Tue, Apr 7, 2026 at 4:11 PM James Somerville &lt;jamescsomerville@gmail.com&gt; wrote: Perfect Alex, what time would you like me to pick\n- Re: Fence Project (2026-04-06)\n    Hey Alex, no worries, hope you feel better soon! We&#39;re slowly getting started right now. No need for anything yet, we&#39;re in the backyard currently. When you&#39;re available, if I can come to\n- Fwd: Bounteous EVP, Managing Director recently posted (2026-04-05)\n    ---------- Forwarded message --------- From: LinkedIn &lt;updates-noreply@linkedin.com&gt; Date: Sat, Apr 4, 2026 at 9:06 PM Subject: Bounteous EVP, Managing Director recently posted To: James\n\n# Expanded contact profiles\n\n## Profile: James Andrews (id 7)\nCompany: James Andrews Talent Services\nRole: VO Coach / Demo Producer\nEmail: james@jamesandrewsvo.com",
+      "context_chars": 4013,
+      "metadata": {
+        "tables_with_results": [
+          "contact",
+          "project",
+          "decision",
+          "notes_v2",
+          "email"
+        ],
+        "total_flat_rows": 17,
+        "profiles_expanded": 1,
+        "profiled_contact_ids": [
+          7
+        ],
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "R3__C",
+      "prompt_id": "R3",
+      "arm_id": "C",
+      "bucket": "recall",
+      "question": "Do I have James Andrews' current email?",
+      "gold_facts": [
+        "Email: james@jamesandrewsvo.com",
+        "TWO contact records resolve to this email: id 7 (James Andrews Talent Services, VO Coach / Demo Producer) and id 9 (James Andrews VO, VO Demo Producer)",
+        "An honest answer flags the duplicate and notes that both records share the same email"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [
+        "Returning only one record without acknowledging the duplicate",
+        "Inventing a different email address"
+      ],
+      "context": "# next_soy loci brief \u2014 \"Do I have James Andrews' current email?\"\n# 60 entities \u00b7 depth 2 \u00b7 50 edges walked \u00b7 types: contact, decision, email, memory_episode, notes_v2, project\n\n## Episode: Operator intelligence layer (active since 2026-03-01)\n\nA period of thinking about private, owner-facing intelligence layers distinct from the public product. Both Reprise (competitive analysis, music-as-signal, API budget controls) and BATL Lane Command (private ops intelligence, daily metrics, revenue dashboards) fit this framing.\n\nMembers in view:\n  - Note: Cadence  competitive landscape analysis (March 2026) (artifact)\n  - Note: BATL Lane Command  private ops intelligence layer (artifact)\n  - BATL Lane Command [active] (protagonist)\n  - Reprise [active] (protagonist)\n\n## Episode: VO career 2026 push (active since 2026-01-01)\n\nDemo production with James Andrews, ongoing Jackie Warden auditions, Elana's and Ivan's site builds, the us-vo-agent-pursuit project, and the ACTRA Game Expo volunteer work. A concentrated period of VO career investment in Q1 2026.\n\nMembers in view:\n  - Jackie Warden \u2014 Talent Agent at Warden Talent (protagonist)\n  - James Andrews \u2014 VO Coach / Demo Producer at James Andrews Talent Services (protagonist)\n  - Elana Dunkelman \u2014 Actor / Writer at ACTRA Toronto (protagonist)\n  - Alex Somerville VO [active] (setting)\n  - elana-dunkelman-vo [active] (setting)\n  - us-vo-agent-pursuit [active] (setting)\n\n## Episode: Axe throwing day job (active since 2025-01-01)\n\nThe ambient employment context around Alex's work at BATL Axe Throwing \u2014 HR, T4 tips, employment agreement, shift-related signal. Distinct from the BATL Lane Command project, which is Alex's private ops-intelligence build for the same employer.\n\nMembers in view:\n  - Alex Somerville \u2014 user / self (protagonist)\n  - BATL Axe Throwing \u2014 employer at BATL Axe Throwing (setting)\n\n## Episode: James's estate planning 2026 (active since 2026-01-28)\n\nJim Somerville's estate planning thread \u2014 'Will ideas to be discussed' (Jan 28), 'Will ideas Rev 2' (Jan 29), 'Time for a Will' (Mar 28). Inner cc circle: Cameron, Ainslie, Anna Lee, Alex. Alex's reply 'I have no intention of exiting Dico' anchors the shareholder position.\n\nMembers in view:\n  - Alex Somerville \u2014 user / self (member)\n  - Jim Somerville \u2014 father / advisor (protagonist)\n  - Cameron Somerville \u2014 family (brother) (member)\n  - Ainslie Roberts \u2014 family (member)\n  - Dico \u2014 holding company at Dico (artifact)\n\n## Note: Cadence  competitive landscape analysis (March 2026)\n\n## Direct Competitors  **Pieces for Developers**  HIGHEST THREAT. OS-level Workstream Pattern Engine capturing context across IDE, browser, chat, docs. Local-first, privacy-focused. Closest architectural analog. If they pivot to learning reinforcement, most dangerous competitor. Currently lacks: lea\n\n  (no related entities in budget)\n\n## James Andrews \u2014 VO Coach / Demo Producer at James Andrews Talent Services\n\nVO demo producer. 32 Summerhill Ave, Toronto ON M4T 1A8. HST# 80395 4106.\n\nRelated:\n  - Alex Somerville \u2014 user / self [mentor_of]\n  - Ivan Sherry \u2014 VO coach / site client [building_site_for]\n  - Jon McLaren \u2014 client / ACTRA peer [building_site_for]\n  - Craig Burnatowski \u2014 client / ACTRA peer [building_site_for]\n  - Kerry Morrison \u2014 SoY collaborator / dev peer / close friend at Better Story [close_friend_of]\n  - Jim Somerville \u2014 father / advisor [family_of]\n  - Cameron Somerville \u2014 family (brother) [family_of]\n  - Ainslie Roberts \u2014 family [family_of]\n  - Gerald Karaguni \u2014 neighbor [neighbor_of]\n  - Dico \u2014 holding company at Dico [shareholder_of]\n  - BATL Axe Throwing \u2014 employer at BATL Axe Throwing [works_at]\n  - Jackie Warden \u2014 Talent Agent at Warden Talent [books_for \u2190 reverse]\n\n## Alison Little \u2014 principal agent at (Elana's principal agent)\n\nThin row. No direct correspondence \u2014 appears only in Elana's email signature. Held here so Elana\u2192represented_by edge has a target.\n\nRelated:\n  - elana-dunkelman-vo [active] [client_of \u2190 reverse]\n  - Email: Website stuff (2026-03-24) [email_with \u2190 reverse]\n  - Email: Re: Game Expo - March 28 & 29 (2026-03-24) [email_with \u2190 reverse]\n  - Email: Game Expo - March 28 & 29 (2026-03-23) [email_with \u2190 reverse]\n  - Email: Zoom link - tomorrow @ 3:00 (2025-08-11) [email_with \u2190 reverse]\n  - Email: Re: Game Expo - March 28 & 29 (2026-03-29) [email_with \u2190 reverse]\n  - Elana Dunkelman \u2014 Actor / Writer at ACTRA Toronto [agent_of]\n  - Jason Thomas \u2014 voice agent at (Elana's voice agent) [represented_by]\n\n## Decision: Ollama serial request queue (2026-03-08)\n\nConcurrent requests to different models (embed + generate) cause 500 errors \u00b7 Decision: Serialize all Ollama calls through request queue in ollama.js \u00b7 Rationale: Ollama can only serve one model at a time. Model-swap during concurrent calls causes server errors. All work is sequential.\n\nRelated:\n  - ARIA [active] [decided_in]\n  - Task: Extension shell + Manifest V3 [done] [belongs_to_project \u2190 reverse]\n  - Task: Streaming chat with Ollama (gemma3:4b) [done] [belongs_to_project \u2190 reverse]\n  - Task: Gmail DOM thread extraction [done] [belongs_to_project \u2190 reverse]\n  - Task: Sidebar injection with slide animation [done] [belongs_to_project \u2190 reverse]\n  - Task: aria-server companion (Express + better-sqlite3) [done] [belongs_to_project \u2190 reverse]\n  - Decision: Companion server over sql.js/WASM (2026-03-06) [decided_in \u2190 reverse]\n      Chrome extension sandbox cannot run native Node modules like better-sqlite3 \u00b7 Decision: Express companion server on localhost:11435 \u00b7 Rationale: Follows same pa\n  - Decision: Streaming generation mandatory (2026-03-06) [decided_in \u2190 reverse]\n      Ollama with stream:false holds connection with no headers until done \u00b7 Decision: Always use stream:true, accumulate server-side \u00b7 Rationale: Node 20 fetch (undi\n  - Decision: Conflict detection threshold at 0.5 (2026-03-08) [decided_in \u2190 reverse]\n      Need to balance precision vs recall for memory conflict detection \u00b7 Decision: Cosine similarity threshold of 0.5  wider net, let LLM filter \u00b7 Rationale: Full th\n  - Decision: Embed fact details, not full threads (2026-03-08) [decided_in \u2190 reverse]\n      Need to decide what to embed for semantic search \u00b7 Decision: Store embeddings of specific decision sentences extracted by LLM \u00b7 Rationale: Dramatically better r\n  - Decision: gemma3:4b over gemma3:12b (2026-03-08) [decided_in \u2190 reverse]\n      Need to balance model quality vs latency for local inference \u00b7 Decision: Hardened to gemma3:4b as primary model \u00b7 Rationale: Reduced from 12b for latency. 4b ad\n  - Note: Post-report informational tracks recommendation screen [mentions \u2190 reverse]\n      After first digest generation, show a screen recommending learning/interest tracks (UE5, React, voice acting, etc.) based on signals from the test generation  t\n  - Note: Cadence digest philosophy [mentions \u2190 reverse]\n      Digests are meant to \"top off\" or cement learnings from the previous day's work  \"Success happened and here's why, in plain English, that YOU understand.\"\n  - Note: Cadence tracks vision [mentions \u2190 reverse]\n      Tracks are broader knowledge topics, defaulting to what the user is actively working on, but should feel open to exploration  not limited to directly tangential\n  - Note: Cadence tracks in digest  UX direction [mentions \u2190 reverse]\n      \"Keep exploring\" section at bottom of digest (nudge strip). Evolved form: inline breadcrumbs linking concepts to tracks. Goal: incidental, non-intrusive, never \n\n## Decision: Anonymous auth fallback (2026-02-15)\n\nUsers need to browse directory without creating an account \u00b7 Decision: Firebase anonymous auth on first visit, upgrade to email/password on signup \u00b7 Rationale: Enables frictionless directory browsing. Anonymous session upgrades seamlessly to full account.\n\nRelated:\n  - VO Actor Database [active] [decided_in]\n  - Task: Email/password auth with reCAPTCHA v2 [done] [belongs_to_project \u2190 reverse]\n  - Task: Profile management (name, bio, headshots, union, tags) [done] [belongs\n\n[context truncated at 8000 chars; 815 more chars omitted]",
+      "context_chars": 8059,
+      "metadata": {
+        "total_nodes": 60,
+        "edges_walked": 50,
+        "max_depth_reached": 2,
+        "entity_types_touched": [
+          "contact",
+          "decision",
+          "email",
+          "memory_episode",
+          "notes_v2",
+          "project"
+        ],
+        "seed_count": 10,
+        "episodes_touched": 4,
+        "loci_version": 2,
+        "truncated": true,
+        "original_chars": 8815,
+        "truncated_at": 8000
+      }
+    },
+    {
+      "id": "R4__A",
+      "prompt_id": "R4",
+      "arm_id": "A",
+      "bucket": "recall",
+      "question": "Remind me where things stand with Jessica on The Grow App before I reply to her last email.",
+      "gold_facts": [
+        "Most recent interaction: id 7, inbound email on 2026-04-10",
+        "Paywall scope refined: Shop tab + profiles + cart paywalled, News/About/Membership purchase free",
+        "Two new asks from Jessica: (1) ability to share curated external gardening videos to the News feed (admin-only vs. any member is open), (2) confirmed paywall scope above",
+        "Jessica is working on the business plan this weekend and will send updated website framework doc for the July pitch",
+        "Possible EY grant mentioned to pay Alex a salary",
+        "Personal context: Jessica's mom is in chemo at Sunnybrook this week, doing well this round",
+        "Linked decision: id 41 (2026-04-10, paywall scope refined) \u2014 Shop tab paywalled, News/About/Membership free",
+        "Other Grow App decisions on file: Stripe over Shopify (id 3), trust-based auth (id 1), defer item restrictions by postal code (id 4), defer priority notifications (id 2), open messaging no friend requests (id 7), Vercel + GoDaddy (id 5)"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [],
+      "context": "## CONTACTS (1)\n- Jessica Martin (id 1, Client / Founder at The Grow App)\n\n## PROJECTS (4)\n- The Grow App (id 1, active, high priority, target 2026-07-01)\n- elana-dunkelman-vo (id 212, active, high priority)\n- Axe Scoring App (id 208, paused, low priority)\n- Harvest Dashboard (id 216, active, medium priority)\n\n## DECISIONS (7)\n- Defer item restrictions by postal code (id 4, decided 2026-03-04)\n    rationale: Jessica reconsidered: \"if there are more shoppers than growers, it would not matter if all growers are growing kale.\" Market saturation may self-correct.\n- FB Marketplace-style geo privacy (id 6, decided 2026-03-12)\n    rationale: Adapts proven FB Marketplace pattern for hyperlocal context. Tighter search radius (1/5/10/25 km). Jessica responded positively, raised question about dropping postal codes entirely.\n- Trust-based authentication (id 1, decided 2026-03-04)\n    rationale: Jessica philosophy: users should not be afraid to fail or be penalized. Verification adds friction that would hurt early adoption for a soft launch.\n- Defer Priority Notifications (id 2, decided 2026-03-03)\n    rationale: Jessica: \"this will only be an issue once we have a robust number of members (target 2027)\". Not worth building for 5-garden soft launch.\n- Anonymous auth fallback (id 23, decided 2026-02-15)\n    rationale: Enables frictionless directory browsing. Anonymous session upgrades seamlessly to full account.\n- Braska knows the Calm is temporary (id 37, decided 2026-03-13)\n    rationale: Every kind gesture is shadowed by knowledge that someone else will make this choice again. Makes tenderness an act of rebellion.\n- League detection: drop isZoneWide requirement (id 40, decided 2026-03-15)\n    rationale: Staff enter leagues as a single lane (e.g. \"BLACK 1\") with merged cells spanning 4 rows, not \"BLACK WHOLE\". The API only returns the value in the first cell of a merge, so isZoneWide was never true fo\n\n## NOTES_V2S (10)\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- SoY loci layer \u2014 graph traversal for context assembly (id 31)\n    ## SoY loci layer \u2014 architectural concept  Originated in a Discord conversation 2026-04-09/10 sparked by Milla Jovovich's \"MemPalace\" launch. The bot claimed to save this note at the time but the call\n- Writing Module  MacBook CLI build (id 5)\n    Building a SoY writing module with integrated edit mode and feedback mode. Context imported last night (The Third Variable, The Wrong Chair, 3 POV drafts each). Full session notes to be logged from Ma\n- Cadence  API cost controls (budget caps) (id 13)\n    For users on Claude API access (not subscription), Cadence MUST have budget controls. Users should be able to set hard caps like \"$5/week\" or \"$5/month\" and Cadence stops utilizing paid context source\n- Cadence  music as learning environment signal (id 14)\n    Music listening data isn't about taste  it's about learning CONDITIONS. Correlating what someone listens to (or silence) with what they were working on and how well they retained it gives insight into\n- Cadence  competitive landscape analysis (March 2026) (id 15)\n    ## Direct Competitors  **Pieces for Developers**  HIGHEST THREAT. OS-level Workstream Pattern Engine capturing context across IDE, browser, chat, docs. Local-first, privacy-focused. Closest architectu\n- Learning module  instant clarification on digest notes (id 19)\n    When users add notes to their digest, a clarification flow would help both the user understand the content better and help the agent learn the user's learning style/gaps. Could be a follow-up question\n- AloneinaBar Repo: better-websites (id 25)\n    Automated pipeline: discover businesses with bad websites  generate modern replacements  cold email old-vs-new comparison  sell $99/mo managed \"Automated Front Desk\" service.  **Tech (planned):** Astr\n- AloneinaBar Repo: claude-code-unlocked (id 27)\n    Free 16-lesson Claude Code course  content marketing funnel for BetterStory consulting. Only PUBLIC repo in the org.  **Tech:** Astro static site on Vercel. Lessons generated using Claude API via brow\n\n## INTERACTIONS (3)\n- inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n    Jessica responded positively to the Apr 8 staging update. Loved the shop tab and generic produce naming. Two new asks: (1) ability to share curated external gardening videos to the News feed \u2014 scoping\n- inbound call: Voice call \u2014 booked (57s) (2026-04-09)\n    Carrie successfully booked an appointment with Alex Summerville's virtual assistant for Friday, April 10th at 2 PM. The assistant confirmed the availability and finalized the booking after getting Car\n- inbound call: Voice call \u2014 booked (7s) (2026-04-09)\n    An AI virtual assistant for Alex Summerville initiated the call, greeting the caller and asking for their name. The call ended abruptly when the customer hung up before providing any further informati\n\n## EMAILS (10)\n- Failed preview deployments on team 'Alex's projects' (2026-04-08)\n    Hi jalexsomerville-1690, There were 2 deployments with errors on Alex&#39;s projects. Deployment kd2zmqy9r on the-grow-app Deployment acbivctya on the-grow-app-v56p You can also view latest deployment\n- The Grow App \u2014 big staging update (2026-04-08)\n    Hey Jess, Been a minute! Easter got crazy. Kids. Chocolate. The works. Wanted to give you a heads up \u2014 there&#39;s a major update on the staging site for whenever you get a chance to poke at it. No\n- Re: Fence Project (2026-04-06)\n    Hey Gerald, Apologies for the late reply, I haven&#39;t been feeling great the last couple of days. Yeah, no problem to get the ivy sorted out today. What can I do to help and when were you looking to\n- Pizza Pizza Order Confirmation (2026-03-12)\n    ORDER CONFIRMATION Thank you for ordering with Pizza Pizza! We love your selections and hope you do too! Here are the details of your order in case you need a reminder. Your order is guaranteed to be\n- Only three days left to use your 15.00% OFF coupon! (2026-03-12)\n    Time is ticking! Use it before it&#39;s gone!                                                                              \n- Re: Grow App  Map/Geolocation implementation (2026-03-12)\n    Hi Alex, Geo-tracking: Lots of great insight here. I think we&#39;re getting very close to a solution. However, I don&#39;t think overlapping of circles will be an issue if the functionality of the\n- And the Intrepid award goes to... (2026-03-13)\n    Trips so good they deserve a standing ovation New trips | Destinations | Styles | Deals | Search Award-worthy adventures An Intrepid trip is kind of like a movie You can ride a rickshaw around Delhi,\n- 6 new free items from your neighbours: Assorted Clothing Bundle free + more (2026-03-13)\n    Grab these deals before they&#39;re gone!                                                                               \n- Getting out of your comfort zone (2026-03-13)\n    I think this may be the most underrated wellness hack there is... BC Wellness Update Each week, I&#39;ll drop a quick note here with tips, reminders, and body-friendly nudges to help you feel a little\n- Website stuff (2026-03-24)\n    Here's some stuff to get started",
+      "context_chars": 7624,
+      "metadata": {
+        "tables_searched": [
+          "contacts",
+          "projects",
+          "decisions",
+          "notes_v2",
+          "contact_interactions",
+          "emails"
+        ],
+        "tables_with_results": [
+          "contact",
+          "project",
+          "decision",
+          "notes_v2",
+          "interaction",
+          "email"
+        ],
+        "total_rows": 35,
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "R4__B",
+      "prompt_id": "R4",
+      "arm_id": "B",
+      "bucket": "recall",
+      "question": "Remind me where things stand with Jessica on The Grow App before I reply to her last email.",
+      "gold_facts": [
+        "Most recent interaction: id 7, inbound email on 2026-04-10",
+        "Paywall scope refined: Shop tab + profiles + cart paywalled, News/About/Membership purchase free",
+        "Two new asks from Jessica: (1) ability to share curated external gardening videos to the News feed (admin-only vs. any member is open), (2) confirmed paywall scope above",
+        "Jessica is working on the business plan this weekend and will send updated website framework doc for the July pitch",
+        "Possible EY grant mentioned to pay Alex a salary",
+        "Personal context: Jessica's mom is in chemo at Sunnybrook this week, doing well this round",
+        "Linked decision: id 41 (2026-04-10, paywall scope refined) \u2014 Shop tab paywalled, News/About/Membership free",
+        "Other Grow App decisions on file: Stripe over Shopify (id 3), trust-based auth (id 1), defer item restrictions by postal code (id 4), defer priority notifications (id 2), open messaging no friend requests (id 7), Vercel + GoDaddy (id 5)"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [],
+      "context": "## CONTACTS (1)\n- Jessica Martin (id 1, Client / Founder at The Grow App)\n\n## PROJECTS (4)\n- The Grow App (id 1, active, high priority, target 2026-07-01)\n- elana-dunkelman-vo (id 212, active, high priority)\n- Axe Scoring App (id 208, paused, low priority)\n- Harvest Dashboard (id 216, active, medium priority)\n\n## DECISIONS (7)\n- Defer item restrictions by postal code (id 4, decided 2026-03-04)\n    rationale: Jessica reconsidered: \"if there are more shoppers than growers, it would not matter if all growers are growing kale.\" Market saturation may self-correct.\n- FB Marketplace-style geo privacy (id 6, decided 2026-03-12)\n    rationale: Adapts proven FB Marketplace pattern for hyperlocal context. Tighter search radius (1/5/10/25 km). Jessica responded positively, raised question about dropping postal codes entirely.\n- Trust-based authentication (id 1, decided 2026-03-04)\n    rationale: Jessica philosophy: users should not be afraid to fail or be penalized. Verification adds friction that would hurt early adoption for a soft launch.\n- Defer Priority Notifications (id 2, decided 2026-03-03)\n    rationale: Jessica: \"this will only be an issue once we have a robust number of members (target 2027)\". Not worth building for 5-garden soft launch.\n- Anonymous auth fallback (id 23, decided 2026-02-15)\n    rationale: Enables frictionless directory browsing. Anonymous session upgrades seamlessly to full account.\n- Braska knows the Calm is temporary (id 37, decided 2026-03-13)\n    rationale: Every kind gesture is shadowed by knowledge that someone else will make this choice again. Makes tenderness an act of rebellion.\n- League detection: drop isZoneWide requirement (id 40, decided 2026-03-15)\n    rationale: Staff enter leagues as a single lane (e.g. \"BLACK 1\") with merged cells spanning 4 rows, not \"BLACK WHOLE\". The API only returns the value in the first cell of a merge, so isZoneWide was never true fo\n\n## NOTES_V2S (10)\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- SoY loci layer \u2014 graph traversal for context assembly (id 31)\n    ## SoY loci layer \u2014 architectural concept  Originated in a Discord conversation 2026-04-09/10 sparked by Milla Jovovich's \"MemPalace\" launch. The bot claimed to save this note at the time but the call\n- Writing Module  MacBook CLI build (id 5)\n    Building a SoY writing module with integrated edit mode and feedback mode. Context imported last night (The Third Variable, The Wrong Chair, 3 POV drafts each). Full session notes to be logged from Ma\n- Cadence  API cost controls (budget caps) (id 13)\n    For users on Claude API access (not subscription), Cadence MUST have budget controls. Users should be able to set hard caps like \"$5/week\" or \"$5/month\" and Cadence stops utilizing paid context source\n- Cadence  music as learning environment signal (id 14)\n    Music listening data isn't about taste  it's about learning CONDITIONS. Correlating what someone listens to (or silence) with what they were working on and how well they retained it gives insight into\n- Cadence  competitive landscape analysis (March 2026) (id 15)\n    ## Direct Competitors  **Pieces for Developers**  HIGHEST THREAT. OS-level Workstream Pattern Engine capturing context across IDE, browser, chat, docs. Local-first, privacy-focused. Closest architectu\n- Learning module  instant clarification on digest notes (id 19)\n    When users add notes to their digest, a clarification flow would help both the user understand the content better and help the agent learn the user's learning style/gaps. Could be a follow-up question\n- AloneinaBar Repo: better-websites (id 25)\n    Automated pipeline: discover businesses with bad websites  generate modern replacements  cold email old-vs-new comparison  sell $99/mo managed \"Automated Front Desk\" service.  **Tech (planned):** Astr\n- AloneinaBar Repo: claude-code-unlocked (id 27)\n    Free 16-lesson Claude Code course  content marketing funnel for BetterStory consulting. Only PUBLIC repo in the org.  **Tech:** Astro static site on Vercel. Lessons generated using Claude API via brow\n\n## INTERACTIONS (3)\n- inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n    Jessica responded positively to the Apr 8 staging update. Loved the shop tab and generic produce naming. Two new asks: (1) ability to share curated external gardening videos to the News feed \u2014 scoping\n- inbound call: Voice call \u2014 booked (57s) (2026-04-09)\n    Carrie successfully booked an appointment with Alex Summerville's virtual assistant for Friday, April 10th at 2 PM. The assistant confirmed the availability and finalized the booking after getting Car\n- inbound call: Voice call \u2014 booked (7s) (2026-04-09)\n    An AI virtual assistant for Alex Summerville initiated the call, greeting the caller and asking for their name. The call ended abruptly when the customer hung up before providing any further informati\n\n## EMAILS (10)\n- Failed preview deployments on team 'Alex's projects' (2026-04-08)\n    Hi jalexsomerville-1690, There were 2 deployments with errors on Alex&#39;s projects. Deployment kd2zmqy9r on the-grow-app Deployment acbivctya on the-grow-app-v56p You can also view latest deployment\n- The Grow App \u2014 big staging update (2026-04-08)\n    Hey Jess, Been a minute! Easter got crazy. Kids. Chocolate. The works. Wanted to give you a heads up \u2014 there&#39;s a major update on the staging site for whenever you get a chance to poke at it. No\n- Re: Fence Project (2026-04-06)\n    Hey Gerald, Apologies for the late reply, I haven&#39;t been feeling great the last couple of days. Yeah, no problem to get the ivy sorted out today. What can I do to help and when were you looking to\n- Pizza Pizza Order Confirmation (2026-03-12)\n    ORDER CONFIRMATION Thank you for ordering with Pizza Pizza! We love your selections and hope you do too! Here are the details of your order in case you need a reminder. Your order is guaranteed to be\n- Only three days left to use your 15.00% OFF coupon! (2026-03-12)\n    Time is ticking! Use it before it&#39;s gone!                                                                              \n- Re: Grow App  Map/Geolocation implementation (2026-03-12)\n    Hi Alex, Geo-tracking: Lots of great insight here. I think we&#39;re getting very close to a solution. However, I don&#39;t think overlapping of circles will be an issue if the functionality of the\n- And the Intrepid award goes to... (2026-03-13)\n    Trips so good they deserve a standing ovation New trips | Destinations | Styles | Deals | Search Award-worthy adventures An Intrepid trip is kind of like a movie You can ride a rickshaw around Delhi,\n- 6 new free items from your neighbours: Assorted Clothing Bundle free + more (2026-03-13)\n    Grab these deals before they&#39;re gone!                                                                               \n- Getting out of your comfort zone (2026-03-13)\n    I think this may be the most underrated wellness hack there is... BC Wellness Update Each week, I&#39;ll drop a quick note here with tips, reminders, and body-friendly nudges to help you feel a little\n- Website stuff (2026-03-24)\n    Here's some stuff to get started\n\n# Expanded contact profiles\n\n## Profile: Jessica Martin (id 1)\nCompany: The Grow App\nRole: Client / Founder\nEmail: msjessmartin@outlook.com\n\n### Projects (as client) (1)\n- The Grow App [active, high priority]\n\n### Interactions (1)\n- inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n    Jessica responded positively to the Apr 8 staging update. Loved the sho\n\n[context truncated at 8000 chars; 1674 more chars omitted]",
+      "context_chars": 8060,
+      "metadata": {
+        "tables_with_results": [
+          "contact",
+          "project",
+          "decision",
+          "notes_v2",
+          "interaction",
+          "email"
+        ],
+        "total_flat_rows": 35,
+        "profiles_expanded": 1,
+        "profiled_contact_ids": [
+          1
+        ],
+        "loci_version": 2,
+        "truncated": true,
+        "original_chars": 9674,
+        "truncated_at": 8000
+      }
+    },
+    {
+      "id": "R4__C",
+      "prompt_id": "R4",
+      "arm_id": "C",
+      "bucket": "recall",
+      "question": "Remind me where things stand with Jessica on The Grow App before I reply to her last email.",
+      "gold_facts": [
+        "Most recent interaction: id 7, inbound email on 2026-04-10",
+        "Paywall scope refined: Shop tab + profiles + cart paywalled, News/About/Membership purchase free",
+        "Two new asks from Jessica: (1) ability to share curated external gardening videos to the News feed (admin-only vs. any member is open), (2) confirmed paywall scope above",
+        "Jessica is working on the business plan this weekend and will send updated website framework doc for the July pitch",
+        "Possible EY grant mentioned to pay Alex a salary",
+        "Personal context: Jessica's mom is in chemo at Sunnybrook this week, doing well this round",
+        "Linked decision: id 41 (2026-04-10, paywall scope refined) \u2014 Shop tab paywalled, News/About/Membership free",
+        "Other Grow App decisions on file: Stripe over Shopify (id 3), trust-based auth (id 1), defer item restrictions by postal code (id 4), defer priority notifications (id 2), open messaging no friend requests (id 7), Vercel + GoDaddy (id 5)"
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [],
+      "context": "# next_soy loci brief \u2014 'Remind me where things stand with Jessica on The Grow App before I reply to her last email.'\n# 52 entities \u00b7 depth 2 \u00b7 42 edges walked \u00b7 types: calendar_event, contact, contact_interaction, decision, email, memory_episode, notes_v2, project, project_task\n\n## Episode: Operator intelligence layer (active since 2026-03-01)\n\nA period of thinking about private, owner-facing intelligence layers distinct from the public product. Both Reprise (competitive analysis, music-as-signal, API budget controls) and BATL Lane Command (private ops intelligence, daily metrics, revenue dashboards) fit this framing.\n\nMembers in view:\n  - Note: Cadence  competitive landscape analysis (March 2026) (artifact)\n  - Note: BATL Lane Command  private ops intelligence layer (artifact)\n  - BATL Lane Command [active] (protagonist)\n  - Reprise [active] (protagonist)\n\n## Episode: VO career 2026 push (active since 2026-01-01)\n\nDemo production with James Andrews, ongoing Jackie Warden auditions, Elana's and Ivan's site builds, the us-vo-agent-pursuit project, and the ACTRA Game Expo volunteer work. A concentrated period of VO career investment in Q1 2026.\n\nMembers in view:\n  - Elana Dunkelman \u2014 Actor / Writer at ACTRA Toronto (protagonist)\n  - elana-dunkelman-vo [active] (setting)\n\n## Jessica Martin \u2014 Client / Founder at The Grow App\n\nClient for The Grow App. Phase 1 contract $3,750 ($1,250 deposit received). Pitch deadline July 2026.\n\nRelated:\n  - The Grow App [active] target 2026-07-01 [client_of \u2190 reverse]\n  - Email: Re: Grow App  Map/Geolocation implementation (2026-03-12) [email_with \u2190 reverse]\n  - Email: Re: Gmail access and Mailchimp updates (2026-04-01) [email_with \u2190 reverse]\n  - Email: Re: Gmail access and Mailchimp updates (2026-03-31) [email_with \u2190 reverse]\n  - Email: The Grow App \u2014 big staging update (2026-04-08) [email_with \u2190 reverse]\n  - Event: Video Call  Alex & Jess (2026-03-11T13:00) [event_with \u2190 reverse]\n  - Decision: Stripe over Shopify for payments (2026-03-02) [involves_contact \u2190 reverse]\n      Need payment integration for $10 annual membership fee. Shopify or Stripe? \u00b7 Decision: Stripe Checkout  much leaner than going through Shopify. \u00b7 Rationale: Str\n  - Decision: Vercel hosting + GoDaddy domain (2026-03-02) [involves_contact \u2190 reverse]\n      Need hosting infrastructure for the app. \u00b7 Decision: Keep domain at GoDaddy, point app to Vercel for hosting. \u00b7 Rationale: Vercel is lightning-fast, secure, and\n  - Task: Landing page  swap hero image [todo] [belongs_to_project \u2190 reverse]\n  - Task: Landing page  mobile text spacing [todo] [belongs_to_project \u2190 reverse]\n  - Task: Landing page  update copy [todo] [belongs_to_project \u2190 reverse]\n  - Task: Mailchimp integration [blocked] [belongs_to_project \u2190 reverse]\n  - Task: Google Workspace setup [blocked] [belongs_to_project \u2190 reverse]\n\n## inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n\n  (no related entities in budget)\n\n## Decision: Defer item restrictions by postal code (2026-03-04)\n\nJessica originally wanted to restrict what people can grow per postal code to ensure variety. \u00b7 Decision: Deferred  let variety happen organically. Build the structure so it can be enabled later. \u00b7 Rationale: Jessica reconsidered: \"if there are more shoppers than growers, it would not matter if all growers are growing kale.\" Market saturation may self-correct.\n\n  (no related entities in budget)\n\n## Alison Little \u2014 principal agent at (Elana's principal agent)\n\nThin row. No direct correspondence \u2014 appears only in Elana's email signature. Held here so Elana\u2192represented_by edge has a target.\n\nRelated:\n  - elana-dunkelman-vo [active] [client_of \u2190 reverse]\n  - Email: Website stuff (2026-03-24) [email_with \u2190 reverse]\n  - Email: Re: Game Expo - March 28 & 29 (2026-03-24) [email_with \u2190 reverse]\n  - Email: Game Expo - March 28 & 29 (2026-03-23) [email_with \u2190 reverse]\n  - Email: Zoom link - tomorrow @ 3:00 (2025-08-11) [email_with \u2190 reverse]\n  - Email: Re: Game Expo - March 28 & 29 (2026-03-29) [email_with \u2190 reverse]\n  - Elana Dunkelman \u2014 Actor / Writer at ACTRA Toronto [agent_of]\n  - Jason Thomas \u2014 voice agent at (Elana's voice agent) [represented_by]\n  - Alex Somerville \u2014 user / self [building_site_for \u2190 reverse]\n\n## Decision: Trust-based authentication (2026-03-04)\n\nNeed to determine how to verify growers vs shoppers. Do growers need to prove they are growing? \u00b7 Decision: Trust them  no verification required. The app will be a \"safe space\" where good intentions are enough. \u00b7 Rationale: Jessica philosophy: users should not be afraid to fail or be penalized. Verification adds friction that would hurt early adoption for a soft launch.\n\n  (no related entities in budget)\n\n## Decision: Defer Priority Notifications (2026-03-03)\n\nProposed 48-hour early harvest alerts for growers before general public. \u00b7 Decision: Deferred to 2027  not needed until robust member base exists. \u00b7 Rationale: Jessica: \"this will only be an issue once we have a robust number of members (target 2027)\". Not worth building for 5-garden soft launch.\n\n  (no related entities in budget)\n\n## Email: Re: Fence Project (2026-04-06)\n\n  (no related entities in budget)\n\n## Note: Cadence digest philosophy\n\nDigests are meant to \"top off\" or cement learnings from the previous day's work  \"Success happened and here's why, in plain English, that YOU understand.\"\n\nRelated:\n  - Task: Extension shell + Manifest V3 [done] [belongs_to_project \u2190 reverse]\n  - Task: Streaming chat with Ollama (gemma3:4b) [done] [belongs_to_project \u2190 reverse]\n  - Task: Gmail DOM thread extraction [done] [belongs_to_project \u2190 reverse]\n  - Task: Sidebar injection with slide animation [done] [belongs_to_project \u2190 reverse]\n  - Task: aria-server companion (Express + better-sqlite3) [done] [belongs_to_project \u2190 reverse]\n  - Decision: Companion server over sql.js/WASM (2026-03-06) [decided_in \u2190 reverse]\n      Chrome extension sandbox cannot run native Node modules like better-sqlite3 \u00b7 Decision: Express companion server on localhost:11435 \u00b7 Rationale: Follows same pa\n  - Decision: Streaming generation mandatory (2026-03-06) [decided_in \u2190 reverse]\n      Ollama with stream:false holds connection with no headers until done \u00b7 Decision: Always use stream:true, accumulate server-side \u00b7 Rationale: Node 20 fetch (undi\n  - Decision: Conflict detection threshold at 0.5 (2026-03-08) [decided_in \u2190 reverse]\n      Need to balance precision vs recall for memory conflict detection \u00b7 Decision: Cosine similarity threshold of 0.5  wider net, let LLM filter \u00b7 Rationale: Full th\n  - Decision: Embed fact details, not full threads (2026-03-08) [decided_in \u2190 reverse]\n      Need to decide what to embed for semantic search \u00b7 Decision: Store embeddings of specific decision sentences extracted by LLM \u00b7 Rationale: Dramatically better r\n  - Decision: gemma3:4b over gemma3:12b (2026-03-08) [decided_in \u2190 reverse]\n      Need to balance model quality vs latency for local inference \u00b7 Decision: Hardened to gemma3:4b as primary model \u00b7 Rationale: Reduced from 12b for latency. 4b ad\n  - ARIA [active] [mentions]\n  - Note: Post-report informational tracks recommendation screen [mentions \u2190 reverse]\n      After first digest generation, show a screen recommending learning/interest tracks (UE5, React, voice acting, etc.) based on signals from the test generation  t\n  - Note: Cadence tracks vision [mentions \u2190 reverse]\n      Tracks are broader knowledge topics, defaulting to what the user is actively working on, but should feel open to exploration  not limited to directly tangential\n  - Note: Cadence tracks in digest  UX direction [mentions \u2190 reverse]\n      \"Keep exploring\" section at bottom of digest (nudge strip). Evolved form: inline breadcrumbs linking concepts to tracks. Goal: incidental, non-intrusive, never \n  - Note: Cadence Nudge Strip spec [mentions \u2190 reverse]\n      Option A confirmed: single-line footer strip in digest. Muted styling, faint top border, one line max with icon + observed copy + link. Tracks can be static (fr\n\n[context truncated at 8000 chars; 856 more chars omitted]",
+      "context_chars": 8059,
+      "metadata": {
+        "total_nodes": 52,
+        "edges_walked": 42,
+        "max_depth_reached": 2,
+        "entity_types_touched": [
+          "calendar_event",
+          "contact",
+          "contact_interaction",
+          "decision",
+          "email",
+          "memory_episode",
+          "notes_v2",
+          "project",
+          "project_task"
+        ],
+        "seed_count": 10,
+        "episodes_touched": 2,
+        "loci_version": 2,
+        "truncated": true,
+        "original_chars": 8856,
+        "truncated_at": 8000
+      }
+    },
+    {
+      "id": "P1__A",
+      "prompt_id": "P1",
+      "arm_id": "A",
+      "bucket": "prep",
+      "question": "I'm about to record VO with Elana \u2014 what should I have in mind?",
+      "gold_facts": [
+        "Project: elana-dunkelman-vo (id 212), status active, priority high",
+        "Contact: Elana Dunkelman (id 8), Actor / Writer at ACTRA Toronto, email elanadunkelman@gmail.com",
+        "ZERO logged interactions with Elana",
+        "ZERO logged decisions on the elana-dunkelman-vo project",
+        "ZERO transcripts involving Elana"
+      ],
+      "honest_answer_notes": "This is a sparse-data prompt by design. The correct answer surfaces the project + contact and EXPLICITLY flags the data gap rather than fabricating context. Saying 'limited data \u2014 only the project and contact record exist' is the right move.",
+      "negative_signals": [],
+      "context": "## CONTACTS (3)\n- Elana Dunkelman (id 8, Actor / Writer at ACTRA Toronto)\n- Alison Little (id 47, principal agent at (Elana's principal agent))\n- Jason Thomas (id 48, voice agent at (Elana's voice agent))\n\n## PROJECTS (1)\n- elana-dunkelman-vo (id 212, active, high priority)\n\n## DECISIONS (1)\n- Jecht Sphere: camera on watchers (id 38, decided 2026-03-13)\n    rationale: Reader already knows Jecht dialogue from FFX game. The sphere is a mirror  it reflects the observer, not the speaker.\n\n## NOTES_V2S (2)\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n- Learning module  instant clarification on digest notes (id 19)\n    When users add notes to their digest, a clarification flow would help both the user understand the content better and help the agent learn the user's learning style/gaps. Could be a follow-up question\n\n## EMAILS (8)\n- Pizza Pizza Order Confirmation (2026-03-12)\n    ORDER CONFIRMATION Thank you for ordering with Pizza Pizza! We love your selections and hope you do too! Here are the details of your order in case you need a reminder. Your order is guaranteed to be\n- Getting out of your comfort zone (2026-03-13)\n    I think this may be the most underrated wellness hack there is... BC Wellness Update Each week, I&#39;ll drop a quick note here with tips, reminders, and body-friendly nudges to help you feel a little\n- Re: Website tweaks (2026-04-08)\n    done!!! it looks so good!!!!!! On Mon, Apr 6, 2026 at 6:22 PM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Hey Elana! All done \u2014 the changes are live on the site now: - One Delicious\n- BTB Presents:From Blankets to Broadcast - your studio doesn't have to be perfect to be professional (2026-04-07)\n    Hey CAVA fam, Whatcha doin&#39; Thursday? This month&#39;s webinar is about the thing we ALL obsess over: our home studios. Whether you&#39;re recording in a treated closet (moi!), eyeing a\n- BTB Presents:From Blankets to Broadcast - your studio doesn't have to be perfect to be professional (2026-04-07)\n    Hey CAVA fam, Whatcha doin&#39; Thursday? This month&#39;s webinar is about the thing we ALL obsess over: our home studios. Whether you&#39;re recording in a treated closet (moi!), eyeing a\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! All done \u2014 the changes are live on the site now: - One Delicious Christmas moved right below Alert - Added a &quot;View acting scenes &amp; reels on Vimeo&quot; link at the bottom of the\n- Re: Website (2026-04-06)\n    Hey man Thanks for this. I&#39;ll take a look. How can they do it for free? Any word on your record date(s)? Thanks for asking . . . I&#39;m more of an Irish (not Proper Twelve - he&#39;s a dick) or\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! Good catch \u2014 the site wasn&#39;t auto-updating, but I just fixed it. Same link should be working now with all the latest changes: https://elana-dunkelman-vo.vercel.app Here&#39;s what&#39;s",
+      "context_chars": 3126,
+      "metadata": {
+        "tables_searched": [
+          "contacts",
+          "projects",
+          "decisions",
+          "notes_v2",
+          "contact_interactions",
+          "emails"
+        ],
+        "tables_with_results": [
+          "contact",
+          "project",
+          "decision",
+          "notes_v2",
+          "email"
+        ],
+        "total_rows": 15,
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "P1__B",
+      "prompt_id": "P1",
+      "arm_id": "B",
+      "bucket": "prep",
+      "question": "I'm about to record VO with Elana \u2014 what should I have in mind?",
+      "gold_facts": [
+        "Project: elana-dunkelman-vo (id 212), status active, priority high",
+        "Contact: Elana Dunkelman (id 8), Actor / Writer at ACTRA Toronto, email elanadunkelman@gmail.com",
+        "ZERO logged interactions with Elana",
+        "ZERO logged decisions on the elana-dunkelman-vo project",
+        "ZERO transcripts involving Elana"
+      ],
+      "honest_answer_notes": "This is a sparse-data prompt by design. The correct answer surfaces the project + contact and EXPLICITLY flags the data gap rather than fabricating context. Saying 'limited data \u2014 only the project and contact record exist' is the right move.",
+      "negative_signals": [],
+      "context": "## CONTACTS (3)\n- Elana Dunkelman (id 8, Actor / Writer at ACTRA Toronto)\n- Alison Little (id 47, principal agent at (Elana's principal agent))\n- Jason Thomas (id 48, voice agent at (Elana's voice agent))\n\n## PROJECTS (1)\n- elana-dunkelman-vo (id 212, active, high priority)\n\n## DECISIONS (1)\n- Jecht Sphere: camera on watchers (id 38, decided 2026-03-13)\n    rationale: Reader already knows Jecht dialogue from FFX game. The sphere is a mirror  it reflects the observer, not the speaker.\n\n## NOTES_V2S (2)\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n- Learning module  instant clarification on digest notes (id 19)\n    When users add notes to their digest, a clarification flow would help both the user understand the content better and help the agent learn the user's learning style/gaps. Could be a follow-up question\n\n## EMAILS (8)\n- Pizza Pizza Order Confirmation (2026-03-12)\n    ORDER CONFIRMATION Thank you for ordering with Pizza Pizza! We love your selections and hope you do too! Here are the details of your order in case you need a reminder. Your order is guaranteed to be\n- Getting out of your comfort zone (2026-03-13)\n    I think this may be the most underrated wellness hack there is... BC Wellness Update Each week, I&#39;ll drop a quick note here with tips, reminders, and body-friendly nudges to help you feel a little\n- Re: Website tweaks (2026-04-08)\n    done!!! it looks so good!!!!!! On Mon, Apr 6, 2026 at 6:22 PM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Hey Elana! All done \u2014 the changes are live on the site now: - One Delicious\n- BTB Presents:From Blankets to Broadcast - your studio doesn't have to be perfect to be professional (2026-04-07)\n    Hey CAVA fam, Whatcha doin&#39; Thursday? This month&#39;s webinar is about the thing we ALL obsess over: our home studios. Whether you&#39;re recording in a treated closet (moi!), eyeing a\n- BTB Presents:From Blankets to Broadcast - your studio doesn't have to be perfect to be professional (2026-04-07)\n    Hey CAVA fam, Whatcha doin&#39; Thursday? This month&#39;s webinar is about the thing we ALL obsess over: our home studios. Whether you&#39;re recording in a treated closet (moi!), eyeing a\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! All done \u2014 the changes are live on the site now: - One Delicious Christmas moved right below Alert - Added a &quot;View acting scenes &amp; reels on Vimeo&quot; link at the bottom of the\n- Re: Website (2026-04-06)\n    Hey man Thanks for this. I&#39;ll take a look. How can they do it for free? Any word on your record date(s)? Thanks for asking . . . I&#39;m more of an Irish (not Proper Twelve - he&#39;s a dick) or\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! Good catch \u2014 the site wasn&#39;t auto-updating, but I just fixed it. Same link should be working now with all the latest changes: https://elana-dunkelman-vo.vercel.app Here&#39;s what&#39;s\n\n# Expanded contact profiles\n\n## Profile: Elana Dunkelman (id 8)\nCompany: ACTRA Toronto\nRole: Actor / Writer\nEmail: elanadunkelman@gmail.com\n\n### Projects (as client) (1)\n- elana-dunkelman-vo [active, high priority]\n\n### Emails (10)\n- Re: Website tweaks (2026-04-08)\n    done!!! it looks so good!!!!!! On Mon, Apr 6, 2026 at 6:22 PM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Hey Elana! All done \u2014 the changes are live on the site now: - One Delicious\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! All done \u2014 the changes are live on the site now: - One Delicious Christmas moved right below Alert - Added a &quot;View acting scenes &amp; reels on Vimeo&quot; link at the bottom of the\n- Re: Website tweaks (2026-04-06)\n    omg it looks SOOOO good!!!!! Two small tweaks to the selected credits section: -Can we add a &quot;showcase&quot; link under the animation/audiobooks section (or somewhere else if you think there&#39;\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! Good catch \u2014 the site wasn&#39;t auto-updating, but I just fixed it. Same link should be working now with all the latest changes: https://elana-dunkelman-vo.vercel.app Here&#39;s what&#39;s\n- Re: Website tweaks (2026-04-06)\n    Hi!! I&#39;m not seeing the changes reflected on the link from discord - is there a new link? Where do you like buying domains? I usually use go daddy but unsure if that&#39;s the best one! Vimeo link\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! Hope your long weekend was great too. All your updates are in \u2014 tagline, bio, castability cards, credits reorder, studio copy, the works. I also did some background colour tuning across the\n- Website tweaks (2026-04-05)\n    Hi!!! Hope you're having a lovely long weekend. 1. Header: -can we put Actor. Voice Artist. Writer (swap writer and voice artist) -add Gallery anchor 2. About: Elana Dunkelman brings instinct,\n- Re: Game Expo - March 28 & 29 (2026-03-29)\n    Morning!! Heard from some of our Saturday attendees that there was lots of great conversation yesterday. For those going today - have fun, take photos (and send to me!) and feel free to use Myles&#39;\n- Re: Game Expo - March 28 & 29 (2026-03-28)\n     Elana Dunkelman reacted via Gmail On Sat, Mar 28, 2026 at 1:57 PM Myles Dobson &lt;contact@mylesdobson.com&gt; wrote: Attached is a qr code for the agreement mailing list sign up sheet The indie dev\n- Website stuff (2026-03-24)\n    Here's some stuff to get started\n\n## Profile: Alison Little (id 47)\nCompany: (Elana's principal agent)\nRole: principal agent\n\n## Profile: Jason Thomas (id 48)\nCompany: (Elana's voice agent)\nRole: voice agent",
+      "context_chars": 5753,
+      "metadata": {
+        "tables_with_results": [
+          "contact",
+          "project",
+          "decision",
+          "notes_v2",
+          "email"
+        ],
+        "total_flat_rows": 15,
+        "profiles_expanded": 3,
+        "profiled_contact_ids": [
+          8,
+          47,
+          48
+        ],
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "P1__C",
+      "prompt_id": "P1",
+      "arm_id": "C",
+      "bucket": "prep",
+      "question": "I'm about to record VO with Elana \u2014 what should I have in mind?",
+      "gold_facts": [
+        "Project: elana-dunkelman-vo (id 212), status active, priority high",
+        "Contact: Elana Dunkelman (id 8), Actor / Writer at ACTRA Toronto, email elanadunkelman@gmail.com",
+        "ZERO logged interactions with Elana",
+        "ZERO logged decisions on the elana-dunkelman-vo project",
+        "ZERO transcripts involving Elana"
+      ],
+      "honest_answer_notes": "This is a sparse-data prompt by design. The correct answer surfaces the project + contact and EXPLICITLY flags the data gap rather than fabricating context. Saying 'limited data \u2014 only the project and contact record exist' is the right move.",
+      "negative_signals": [],
+      "context": "# next_soy loci brief \u2014 \"I'm about to record VO with Elana \u2014 what should I have in mind?\"\n# 48 entities \u00b7 depth 2 \u00b7 38 edges walked \u00b7 types: contact, decision, email, memory_episode, notes_v2, project, project_task\n\n## Episode: VO career 2026 push (active since 2026-01-01)\n\nDemo production with James Andrews, ongoing Jackie Warden auditions, Elana's and Ivan's site builds, the us-vo-agent-pursuit project, and the ACTRA Game Expo volunteer work. A concentrated period of VO career investment in Q1 2026.\n\nMembers in view:\n  - Jackie Warden \u2014 Talent Agent at Warden Talent (protagonist)\n  - James Andrews \u2014 VO Coach / Demo Producer at James Andrews Talent Services (protagonist)\n  - Elana Dunkelman \u2014 Actor / Writer at ACTRA Toronto (protagonist)\n  - Alex Somerville VO [active] (setting)\n  - elana-dunkelman-vo [active] (setting)\n  - us-vo-agent-pursuit [active] (setting)\n\n## Episode: Axe throwing day job (active since 2025-01-01)\n\nThe ambient employment context around Alex's work at BATL Axe Throwing \u2014 HR, T4 tips, employment agreement, shift-related signal. Distinct from the BATL Lane Command project, which is Alex's private ops-intelligence build for the same employer.\n\nMembers in view:\n  - Alex Somerville \u2014 user / self (protagonist)\n  - BATL Axe Throwing \u2014 employer at BATL Axe Throwing (setting)\n\n## Episode: James's estate planning 2026 (active since 2026-01-28)\n\nJim Somerville's estate planning thread \u2014 'Will ideas to be discussed' (Jan 28), 'Will ideas Rev 2' (Jan 29), 'Time for a Will' (Mar 28). Inner cc circle: Cameron, Ainslie, Anna Lee, Alex. Alex's reply 'I have no intention of exiting Dico' anchors the shareholder position.\n\nMembers in view:\n  - Alex Somerville \u2014 user / self (member)\n  - Jim Somerville \u2014 father / advisor (protagonist)\n  - Cameron Somerville \u2014 family (brother) (member)\n  - Ainslie Roberts \u2014 family (member)\n  - Dico \u2014 holding company at Dico (artifact)\n\n## Elana Dunkelman \u2014 Actor / Writer at ACTRA Toronto\n\nRepped by Alison Little @ ART (principal) and Jason Thomas @ OAZ (voice). Home studio: Neumann TLM 103, UA Twin X Thunderbolt, hardwired, directable via Zoom/Source Connect Standard. ACTRA Toronto video game committee.\n\nRelated:\n  - elana-dunkelman-vo [active] [client_of \u2190 reverse]\n  - Email: Website stuff (2026-03-24) [email_with \u2190 reverse]\n  - Email: Re: Game Expo - March 28 & 29 (2026-03-24) [email_with \u2190 reverse]\n  - Email: Game Expo - March 28 & 29 (2026-03-23) [email_with \u2190 reverse]\n  - Email: Zoom link - tomorrow @ 3:00 (2025-08-11) [email_with \u2190 reverse]\n  - Email: Re: Game Expo - March 28 & 29 (2026-03-29) [email_with \u2190 reverse]\n  - Task: Add explicit download buttons for assets alongside AI protections [todo] [belongs_to_project \u2190 reverse]\n  - Alex Somerville \u2014 user / self [building_site_for \u2190 reverse]\n  - Ivan Sherry \u2014 VO coach / site client [building_site_for]\n  - Jon McLaren \u2014 client / ACTRA peer [building_site_for]\n  - Craig Burnatowski \u2014 client / ACTRA peer [building_site_for]\n  - Kerry Morrison \u2014 SoY collaborator / dev peer / close friend at Better Story [close_friend_of]\n  - Jim Somerville \u2014 father / advisor [family_of]\n  - Cameron Somerville \u2014 family (brother) [family_of]\n  - Ainslie Roberts \u2014 family [family_of]\n\n## Note: Reprise design principle \u2014 the friend model (vs librarian)\n\n## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-10 morning from the transcript.  ### Two models for surfacing - **Librarian model:** transactional. Y\n\n  (no related entities in budget)\n\n## Alison Little \u2014 principal agent at (Elana's principal agent)\n\nThin row. No direct correspondence \u2014 appears only in Elana's email signature. Held here so Elana\u2192represented_by edge has a target.\n\n  (no related entities in budget)\n\n## Jason Thomas \u2014 voice agent at (Elana's voice agent)\n\nThin row. Same pattern as Alison Little.\n\n  (no related entities in budget)\n\n## Decision: Jecht Sphere: camera on watchers (2026-03-13)\n\nHow to handle the recording device as narrative frame \u00b7 Decision: Focus on observers (Braska reading subtext, Auron refusing vulnerability), not Jecht speaking \u00b7 Rationale: Reader already knows Jecht dialogue from FFX game. The sphere is a mirror  it reflects the observer, not the speaker.\n\nRelated:\n  - Braska's Pilgrimage [active] [decided_in]\n  - Task: Character profiles (Braska, Auron, Jecht  deep Ultimania-sourced) [done] [belongs_to_project \u2190 reverse]\n  - Task: Thematic framework (faith as architecture, cost of knowing) [done] [belongs_to_project \u2190 reverse]\n  - Task: POV structure determined (three-POV inversion, Jecht opacity) [done] [belongs_to_project \u2190 reverse]\n  - Task: Lore foundation (58 context entries across 10 types) [done] [belongs_to_project \u2190 reverse]\n  - Task: Narrative principles (8 core, weighted, evidence-backed) [done] [belongs_to_project \u2190 reverse]\n  - Decision: POV Inversion: Natives Perceiving the Outsider (2026-03-13) [decided_in \u2190 reverse]\n      FFX gives player Tidus outsider perspective. Novel needs different angle. \u00b7 Decision: Tell through Auron and Braska observing Jecht  Jecht never gets POV \u00b7 Rati\n  - Decision: Lore source hierarchy (2026-03-13) [decided_in \u2190 reverse]\n      Multiple FFX sources conflict  need authority order \u00b7 Decision: In-game > Environmental > Ultimania (with caveats) > Fan analysis \u00b7 Rationale: Ultimania is thir\n  - Decision: Braska knows the Calm is temporary (2026-03-13) [decided_in \u2190 reverse]\n      All summoners understand the Calm cycle  does Braska? \u00b7 Decision: Yes. His warmth is defiance, not peaceful acceptance. \u00b7 Rationale: Every kind gesture is shado\n  - Decision: Sonic motifs: bells = Yevon, silence = freedom (2026-03-13) [decided_in \u2190 reverse]\n      Noticed bell imagery recurring in both draft scenes \u00b7 Decision: Prayer bells mark civilization/institution. Silence marks wilderness where party is most themsel\n  - Note: Working Title [mentions \u2190 reverse]\n      Working title: Road to Zanarkand\n  - Note: Feedback  Version A feels heavy-handed in exposition; lines like \"salt of a place that didn't exist on any map he'd studied\" over-explain rather than evoke. Didn't land as strongly as The Wrong Chair versions. [mentions \u2190 reverse]\n      The Third Variable feedback, Version A\n  - Note: Writing Module Concept [mentions \u2190 reverse]\n      Writing happens inside SoY instead of Drive docs  versioned drafts, inline feedback, lore cross-referencing, POV tagging. The lore exploration + feedback system\n\n## Email: Pizza Pizza Order Confirmation (2026-03-12)\n\n  (no related entities in budget)\n\n## Email: Getting out of your comfort zone (2026-03-13)\n\n  (no related entities in budget)\n\n## Email: Website (2026-04-02)\n\n  (no related entities in budget)\n\n## Email: Re: Game Expo - March 28 & 29 (2026-03-28)\n\n  (no related entities in budget)\n\n## Email: Website tweaks (2026-04-05)\n\n  (no related entities in budget)\n\n\n---\nStats: 48 nodes, 38 edges walked, 7 entity types, 3 episodes touched.",
+      "context_chars": 7022,
+      "metadata": {
+        "total_nodes": 48,
+        "edges_walked": 38,
+        "max_depth_reached": 2,
+        "entity_types_touched": [
+          "contact",
+          "decision",
+          "email",
+          "memory_episode",
+          "notes_v2",
+          "project",
+          "project_task"
+        ],
+        "seed_count": 10,
+        "episodes_touched": 3,
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "P2__A",
+      "prompt_id": "P2",
+      "arm_id": "A",
+      "bucket": "prep",
+      "question": "Prep me for picking up work on Specsite tomorrow.",
+      "gold_facts": [
+        "Project: Specsite (id 206), status active",
+        "Eight decisions on file: Templates over AI-generated HTML (id 24, 2026-02-01), Places API New over legacy (id 27, 2026-02-01), Python over Node for pipeline (id 30, 2026-02-01), 5 design token presets + geographic deconfliction (id 25, 2026-02-10), Cloudflare D1 for deployment (id 26, 2026-02-15), Reviews 4+ stars only on display (id 28, 2026-02-20), E-commerce disqualification (id 29, 2026-02-25), Single-page static HTML no framework (id 31, 2026-03-06)",
+        "Cross-content link: Note id 25 (AloneinaBar Repo: better-websites) describes the same pipeline concept \u2014 Specsite IS the better-websites pipeline as productized for Kerry's AloneinaBar org. Note 25 also has linked_projects=[214, 206], which is the proper FK link that should surface in any project-centered fetch."
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [],
+      "context": "## PROJECTS (5)\n- The Grow App (id 1, active, high priority, target 2026-07-01)\n- Specsite (id 206, active, medium priority)\n- Reprise (id 210, active, high priority)\n- elana-dunkelman-vo (id 212, active, high priority)\n- paperclip-research (id 214, active, medium priority)\n\n## DECISIONS (3)\n- Open messaging (no friend requests) (id 7, decided 2026-03-12)\n    rationale: Jessica: \"there will be no friend requests, it is an open network.\" Still needs blocking/reporting design before build.\n- Python over Node for pipeline (id 30, decided 2026-02-01)\n    rationale: Matches SoY ecosystem. Python better for data processing, API calls, template rendering. Workers need JS.\n- Single-page static HTML, no framework (id 31, decided 2026-03-06)\n    rationale: No build step, instant deploy to Vercel, fast loading. All CSS and JS inline  zero external dependencies.\n\n## NOTES_V2S (4)\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- Razer Cron Setup: Reprise Daily/Weekly Generation (id 21)\n    ## Paste this on the Razer (soy)  Also need to establish SSH keys from Legion  Razer first: ``` ssh-copy-id mrlovelies@100.125.139.126 ```  Then add the cron jobs: ```bash crontab -l 2>/dev/null | cat\n- AloneinaBar Repo: better-websites (id 25)\n    Automated pipeline: discover businesses with bad websites  generate modern replacements  cold email old-vs-new comparison  sell $99/mo managed \"Automated Front Desk\" service.  **Tech (planned):** Astr\n\n## INTERACTIONS (3)\n- inbound message: Reprise pitch feedback (2026-03-18)\n    Kerry reviewed Reprise pitch materials. Very interested, wants to try it. Two key questions: (1) Why do I need it  lead with outcome not features. (2) What resource load on system/subscription  will i\n- inbound message: Reprise pitch feedback (2026-03-18)\n    Kerry reviewed Reprise pitch materials. Very interested, wants to try it. Two key questions: (1) Why do I need it  lead with outcome not features. (2) What resource load on system/subscription  will i\n- inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n    Jessica responded positively to the Apr 8 staging update. Loved the shop tab and generic produce naming. Two new asks: (1) ability to share curated external gardening videos to the News feed \u2014 scoping\n\n## EMAILS (5)\n- Re: Fence Project (2026-04-08)\n    Good morning Alex, The contractor will be starting the work at 8:00AM tomorrow - hopefully that is good with you on your end. He will require to go on your side of the fence as well to remove the\n- The Grow App \u2014 big staging update (2026-04-08)\n    Hey Jess, Been a minute! Easter got crazy. Kids. Chocolate. The works. Wanted to give you a heads up \u2014 there&#39;s a major update on the staging site for whenever you get a chance to poke at it. No\n- Re: Tomorrow (2026-04-07)\n    Perfect Alex! On Tue, Apr 7, 2026 at 4:20 PM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Honestly pick me up at 2. That&#39;ll give us plenty of time On Tue, Apr 7, 2026 at 4:11 PM Jame\n- Re: Tomorrow (2026-04-07)\n    Honestly pick me up at 2. That&#39;ll give us plenty of time On Tue, Apr 7, 2026 at 4:11 PM James Somerville &lt;jamescsomerville@gmail.com&gt; wrote: Perfect Alex, what time would you like me to pick\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! Good catch \u2014 the site wasn&#39;t auto-updating, but I just fixed it. Same link should be working now with all the latest changes: https://elana-dunkelman-vo.vercel.app Here&#39;s what&#39;s",
+      "context_chars": 3934,
+      "metadata": {
+        "tables_searched": [
+          "contacts",
+          "projects",
+          "decisions",
+          "notes_v2",
+          "contact_interactions",
+          "emails"
+        ],
+        "tables_with_results": [
+          "project",
+          "decision",
+          "notes_v2",
+          "interaction",
+          "email"
+        ],
+        "total_rows": 20,
+        "loci_version": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "P2__B",
+      "prompt_id": "P2",
+      "arm_id": "B",
+      "bucket": "prep",
+      "question": "Prep me for picking up work on Specsite tomorrow.",
+      "gold_facts": [
+        "Project: Specsite (id 206), status active",
+        "Eight decisions on file: Templates over AI-generated HTML (id 24, 2026-02-01), Places API New over legacy (id 27, 2026-02-01), Python over Node for pipeline (id 30, 2026-02-01), 5 design token presets + geographic deconfliction (id 25, 2026-02-10), Cloudflare D1 for deployment (id 26, 2026-02-15), Reviews 4+ stars only on display (id 28, 2026-02-20), E-commerce disqualification (id 29, 2026-02-25), Single-page static HTML no framework (id 31, 2026-03-06)",
+        "Cross-content link: Note id 25 (AloneinaBar Repo: better-websites) describes the same pipeline concept \u2014 Specsite IS the better-websites pipeline as productized for Kerry's AloneinaBar org. Note 25 also has linked_projects=[214, 206], which is the proper FK link that should surface in any project-centered fetch."
+      ],
+      "honest_answer_notes": null,
+      "negative_signals": [],
+      "context": "## PROJECTS (5)\n- The Grow App (id 1, active, high priority, target 2026-07-01)\n- Specsite (id 206, active, medium priority)\n- Reprise (id 210, active, high priority)\n- elana-dunkelman-vo (id 212, active, high priority)\n- paperclip-research (id 214, active, medium priority)\n\n## DECISIONS (3)\n- Open messaging (no friend requests) (id 7, decided 2026-03-12)\n    rationale: Jessica: \"there will be no friend requests, it is an open network.\" Still needs blocking/reporting design before build.\n- Python over Node for pipeline (id 30, decided 2026-02-01)\n    rationale: Matches SoY ecosystem. Python better for data processing, API calls, template rendering. Workers need JS.\n- Single-page static HTML, no framework (id 31, decided 2026-03-06)\n    rationale: No build step, instant deploy to Vercel, fast loading. All CSS and JS inline  zero external dependencies.\n\n## NOTES_V2S (4)\n- Reprise design principle \u2014 the friend model (vs librarian) (id 32)\n    ## The friend model \u2014 design principle for Reprise  From the Discord conversation 2026-04-10 ~12:54 AM. The bot claimed to save this at the time but the call timed out silently \u2014 re-saved on 2026-04-1\n- Reprise: Native App Architecture (id 20)\n    ## Native App Architecture  Mobile Companion  Discussion from 2026-03-17 (axe throwing session).  ### Problem Reprise is desktop-only. Two gaps: 1. **No mobile browser history**  iOS/Android sandbox b\n- Razer Cron Setup: Reprise Daily/Weekly Generation (id 21)\n    ## Paste this on the Razer (soy)  Also need to establish SSH keys from Legion  Razer first: ``` ssh-copy-id mrlovelies@100.125.139.126 ```  Then add the cron jobs: ```bash crontab -l 2>/dev/null | cat\n- AloneinaBar Repo: better-websites (id 25)\n    Automated pipeline: discover businesses with bad websites  generate modern replacements  cold email old-vs-new comparison  sell $99/mo managed \"Automated Front Desk\" service.  **Tech (planned):** Astr\n\n## INTERACTIONS (3)\n- inbound message: Reprise pitch feedback (2026-03-18)\n    Kerry reviewed Reprise pitch materials. Very interested, wants to try it. Two key questions: (1) Why do I need it  lead with outcome not features. (2) What resource load on system/subscription  will i\n- inbound message: Reprise pitch feedback (2026-03-18)\n    Kerry reviewed Reprise pitch materials. Very interested, wants to try it. Two key questions: (1) Why do I need it  lead with outcome not features. (2) What resource load on system/subscription  will i\n- inbound email: Re: The Grow App \u2014 big staging update (2026-04-10)\n    Jessica responded positively to the Apr 8 staging update. Loved the shop tab and generic produce naming. Two new asks: (1) ability to share curated external gardening videos to the News feed \u2014 scoping\n\n## EMAILS (5)\n- Re: Fence Project (2026-04-08)\n    Good morning Alex, The contractor will be starting the work at 8:00AM tomorrow - hopefully that is good with you on your end. He will require to go on your side of the fence as well to remove the\n- The Grow App \u2014 big staging update (2026-04-08)\n    Hey Jess, Been a minute! Easter got crazy. Kids. Chocolate. The works. Wanted to give you a heads up \u2014 there&#39;s a major update on the staging site for whenever you get a chance to poke at it. No\n- Re: Tomorrow (2026-04-07)\n    Perfect Alex! On Tue, Apr 7, 2026 at 4:20 PM Alex Somerville &lt;j.alex.somerville@gmail.com&gt; wrote: Honestly pick me up at 2. That&#39;ll give us plenty of time On Tue, Apr 7, 2026 at 4:11 PM Jame\n- Re: Tomorrow (2026-04-07)\n    Honestly pick me up at 2. That&#39;ll give us plenty of time On Tue, Apr 7, 2026 at 4:11 PM James Somerville &lt;jamescsomerville@gmail.com&gt; wrote: Perfect Alex, what time would you like me to pick\n- Re: Website tweaks (2026-04-06)\n    Hey Elana! Good catch \u2014 the site wasn&#39;t auto-updating, but I just fixed it. Same link should be working now with all the latest changes: https://elana-dunkelman-vo.vercel.app Here&#39;s what&#39;s",
+      "context_chars": 3934,
+      "metadata": {
+        "tables_with_results": [
+          "project",
+          "decision",
+          "notes_v2",
+          "interaction",
+          "email"
+        ],
+        "total_flat_rows": 20,
+        "profiles_expanded": 0,
+        "profiled_contact_ids": [],
+        "loci_version": 2,
+        "truncated": false
+      }
+    }
+  ]
+}

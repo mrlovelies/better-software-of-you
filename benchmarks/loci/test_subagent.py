@@ -159,6 +159,7 @@ def dump_test_package(
     prompt_ids: Optional[list] = None,
     max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
     notes: Optional[str] = None,
+    loci_version: int = 1,
 ) -> dict:
     """Assemble all (prompt × arm) contexts, create the run row, write the test package.
 
@@ -207,7 +208,9 @@ def dump_test_package(
     entries = []
     for prompt in prompts_list:
         for arm_id in arms_to_run:
-            arm_result = arms.run_arm(arm_id, soy_db_path, prompt, max_chars=max_context_chars)
+            arm_result = arms.run_arm(arm_id, soy_db_path, prompt,
+                                     max_chars=max_context_chars,
+                                     loci_version=loci_version)
             entries.append({
                 "id": f"{prompt['id']}__{arm_id}",
                 "prompt_id": prompt["id"],

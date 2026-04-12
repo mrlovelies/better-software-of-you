@@ -47,6 +47,10 @@ from shared.loci import (  # noqa: E402
     assemble_context,
     render_context,
 )
+from shared.loci_v2 import (  # noqa: E402
+    assemble_context as assemble_context_v2,
+    render_narrative as render_narrative_v2,
+)
 
 
 @dataclass
@@ -189,11 +193,32 @@ _ARM_A_SEARCH_TABLES = [
      "ORDER BY received_at DESC LIMIT ?"),
 ]
 
+_ARM_A_SEARCH_TABLES_V2 = [
+    ("contact", "contacts",
+     "SELECT * FROM contacts WHERE (name LIKE ? OR company LIKE ? OR role LIKE ?) "
+     "AND status = 'active' AND merged_into_id IS NULL LIMIT ?"),
+    ("project", "projects",
+     "SELECT * FROM projects WHERE (name LIKE ? OR description LIKE ?) LIMIT ?"),
+    ("decision", "decisions",
+     "SELECT * FROM decisions WHERE (title LIKE ? OR context LIKE ? OR decision LIKE ?) "
+     "ORDER BY decided_at DESC LIMIT ?"),
+    ("notes_v2", "notes_v2",
+     "SELECT * FROM notes_v2 WHERE (title LIKE ? OR content LIKE ?) "
+     "ORDER BY pinned DESC, created_at DESC LIMIT ?"),
+    ("interaction", "contact_interactions",
+     "SELECT * FROM contact_interactions WHERE (subject LIKE ? OR summary LIKE ?) "
+     "ORDER BY occurred_at DESC LIMIT ?"),
+    ("email", "emails",
+     "SELECT * FROM emails WHERE (subject LIKE ? OR snippet LIKE ? OR body_preview LIKE ?) "
+     "ORDER BY received_at DESC LIMIT ?"),
+]
+
 _ARM_A_LIMIT_PER_KEYWORD_PER_TABLE = 3
 _ARM_A_MAX_TOTAL_PER_TABLE = 10
 
 
-def _flat_search(conn: sqlite3.Connection, query: str) -> dict:
+def _flat_search(conn: sqlite3.Connection, query: str,
+                 search_tables=None) -> dict:
     """Run flat LIKE search across whitelisted tables. Returns {entity_type: [rows]}.
 
     Same match-count ranking as shared.loci.find_seeds: collect every match
@@ -203,10 +228,12 @@ def _flat_search(conn: sqlite3.Connection, query: str) -> dict:
     so generic keywords ate the budget before specific keywords were searched
     (the find_seeds bug, replicated here in arm A's search).
     """
+    if search_tables is None:
+        search_tables = _ARM_A_SEARCH_TABLES
     keywords = _extract_keywords(query) or [query]
     by_type: dict = {}
 
-    for entity_type, _table, sql in _ARM_A_SEARCH_TABLES:
+    for entity_type, _table, sql in search_tables:
         # Count placeholders excluding the LIMIT placeholder
         placeholder_count = sql.count("?") - 1
         rows_by_id: dict = {}    # id -> row
@@ -258,7 +285,7 @@ def _render_flat(by_type: dict) -> str:
                 lines.append(f"- {row.get('title')} (id {row['id']}, decided {decided})")
                 if row.get("rationale"):
                     lines.append(f"    rationale: {row['rationale'][:200]}")
-            elif entity_type == "standalone_note":
+            elif entity_type in ("standalone_note", "notes_v2"):
                 title = row.get("title") or (row.get("content") or "")[:60]
                 lines.append(f"- {title} (id {row['id']})")
                 if row.get("content"):
@@ -283,22 +310,25 @@ def _render_flat(by_type: dict) -> str:
     return "\n\n".join(sections)
 
 
-def run_arm_a(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> ArmResult:
+def run_arm_a(db_path: str, prompt: dict, max_chars: Optional[int] = None,
+              loci_version: int = 1) -> ArmResult:
     """Arm A: flat-only context assembly."""
     start = time.time()
     error = None
     context = ""
     metadata: dict = {}
+    tables = _ARM_A_SEARCH_TABLES_V2 if loci_version == 2 else _ARM_A_SEARCH_TABLES
 
     try:
         conn = _open_db(db_path)
         try:
-            by_type = _flat_search(conn, prompt["prompt"])
+            by_type = _flat_search(conn, prompt["prompt"], search_tables=tables)
             context = _render_flat(by_type)
             metadata = {
-                "tables_searched": [t[1] for t in _ARM_A_SEARCH_TABLES],
+                "tables_searched": [t[1] for t in tables],
                 "tables_with_results": list(by_type.keys()),
                 "total_rows": sum(len(rows) for rows in by_type.values()),
+                "loci_version": loci_version,
             }
         finally:
             conn.close()
@@ -322,10 +352,11 @@ def run_arm_a(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> Ar
 # Reimplements the contact-scoped queries from profile.py inside the
 # harness so this benchmark stays self-contained (no MCP server import).
 
-def _get_profile_for(conn: sqlite3.Connection, cid: int) -> dict:
+def _get_profile_for(conn: sqlite3.Connection, cid: int,
+                     loci_version: int = 1) -> dict:
     """Fetch a contact-centered neighborhood. Mirrors profile.py's contact-scoped queries
     using only ALLOWED_TABLES."""
-    profile: dict = {"contact_id": cid}
+    profile: dict = {"contact_id": cid, "loci_version": loci_version}
 
     rows = _query(conn, "SELECT * FROM contacts WHERE id = ?", (cid,))
     if not rows:
@@ -349,9 +380,12 @@ def _get_profile_for(conn: sqlite3.Connection, cid: int) -> dict:
         "SELECT * FROM projects WHERE client_id = ? ORDER BY updated_at DESC LIMIT 10",
         (cid,))
 
-    profile["follow_ups"] = _query(conn,
-        "SELECT * FROM follow_ups WHERE contact_id = ? AND status = 'pending'",
-        (cid,))
+    if loci_version < 2:
+        profile["follow_ups"] = _query(conn,
+            "SELECT * FROM follow_ups WHERE contact_id = ? AND status = 'pending'",
+            (cid,))
+    else:
+        profile["follow_ups"] = []
 
     profile["transcripts"] = _query(conn,
         "SELECT t.* FROM transcripts t "
@@ -378,18 +412,28 @@ def _get_profile_for(conn: sqlite3.Connection, cid: int) -> dict:
         "ORDER BY created_at DESC LIMIT 10",
         (cid,))
 
-    # standalone_notes via linked_contacts. CANNOT use LIKE '%cid%' here:
-    # `linked_contacts LIKE '%7%'` matches contact 7 AND contacts 17, 27, 70...
-    # any id whose decimal contains the digit 7. Parse the JSON/CSV in Python.
-    candidates = _query(conn,
-        "SELECT * FROM standalone_notes WHERE linked_contacts IS NOT NULL "
-        "AND linked_contacts != '' ORDER BY pinned DESC, created_at DESC")
-    profile["standalone_notes"] = []
-    for note in candidates:
-        if len(profile["standalone_notes"]) >= 10:
-            break
-        if cid in _parse_id_list(note.get("linked_contacts")):
-            profile["standalone_notes"].append(note)
+    # standalone_notes / notes_v2 linked to this contact.
+    if loci_version < 2:
+        # V1: parse linked_contacts TEXT column (JSON/CSV) in Python.
+        candidates = _query(conn,
+            "SELECT * FROM standalone_notes WHERE linked_contacts IS NOT NULL "
+            "AND linked_contacts != '' ORDER BY pinned DESC, created_at DESC")
+        profile["standalone_notes"] = []
+        for note in candidates:
+            if len(profile["standalone_notes"]) >= 10:
+                break
+            if cid in _parse_id_list(note.get("linked_contacts")):
+                profile["standalone_notes"].append(note)
+    else:
+        # V2: notes_v2 linked via entity_edges 'mentions' edges.
+        # Direct table query — not a graph walk, just a one-hop FK lookup.
+        profile["standalone_notes"] = _query(conn,
+            "SELECT n.* FROM notes_v2 n "
+            "JOIN entity_edges e ON e.src_type = 'notes_v2' AND e.src_id = n.id "
+            "WHERE e.dst_type = 'contact' AND e.dst_id = ? "
+            "AND e.edge_type = 'mentions' "
+            "ORDER BY n.pinned DESC, n.created_at DESC LIMIT 10",
+            (cid,))
 
     return profile
 
@@ -482,24 +526,26 @@ def _render_profile(profile: dict) -> str:
     return "\n".join(lines)
 
 
-def run_arm_b(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> ArmResult:
+def run_arm_b(db_path: str, prompt: dict, max_chars: Optional[int] = None,
+              loci_version: int = 1) -> ArmResult:
     """Arm B: flat search PLUS get_profile-style expansion for any contact found."""
     start = time.time()
     error = None
     context = ""
     metadata: dict = {}
+    tables = _ARM_A_SEARCH_TABLES_V2 if loci_version == 2 else _ARM_A_SEARCH_TABLES
 
     try:
         conn = _open_db(db_path)
         try:
-            by_type = _flat_search(conn, prompt["prompt"])
+            by_type = _flat_search(conn, prompt["prompt"], search_tables=tables)
             flat = _render_flat(by_type)
 
             profile_blocks = []
             profiled_contacts = []
             for contact_row in by_type.get("contact", []):
                 cid = contact_row["id"]
-                profile = _get_profile_for(conn, cid)
+                profile = _get_profile_for(conn, cid, loci_version=loci_version)
                 rendered = _render_profile(profile)
                 if rendered:
                     profile_blocks.append(rendered)
@@ -514,6 +560,7 @@ def run_arm_b(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> Ar
                 "total_flat_rows": sum(len(rows) for rows in by_type.values()),
                 "profiles_expanded": len(profiled_contacts),
                 "profiled_contact_ids": profiled_contacts,
+                "loci_version": loci_version,
             }
         finally:
             conn.close()
@@ -534,17 +581,23 @@ def run_arm_b(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> Ar
 
 # ─── Arm C: loci layer ───────────────────────────────────────────────
 
-def run_arm_c(db_path: str, prompt: dict, max_chars: Optional[int] = None) -> ArmResult:
-    """Arm C: graph traversal via shared.loci.assemble_context."""
+def run_arm_c(db_path: str, prompt: dict, max_chars: Optional[int] = None,
+              loci_version: int = 1) -> ArmResult:
+    """Arm C: graph traversal via shared.loci (v1) or shared.loci_v2 (v2)."""
     start = time.time()
     error = None
     context = ""
     metadata: dict = {}
 
     try:
-        neighborhood = assemble_context(db_path, prompt["prompt"])
-        context = render_context(neighborhood)
+        if loci_version == 2:
+            neighborhood = assemble_context_v2(db_path, prompt["prompt"])
+            context = render_narrative_v2(neighborhood)
+        else:
+            neighborhood = assemble_context(db_path, prompt["prompt"])
+            context = render_context(neighborhood)
         metadata = dict(neighborhood.stats)
+        metadata["loci_version"] = loci_version
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
 
@@ -570,9 +623,10 @@ ARMS = {
 
 
 def run_arm(arm_id: str, db_path: str, prompt: dict,
-            max_chars: Optional[int] = None) -> ArmResult:
+            max_chars: Optional[int] = None,
+            loci_version: int = 1) -> ArmResult:
     """Run a single arm against a single prompt with an optional context char cap."""
     if arm_id not in ARMS:
         raise ValueError(f"Unknown arm: {arm_id}. Valid: {list(ARMS.keys())}")
     _, func = ARMS[arm_id]
-    return func(db_path, prompt, max_chars=max_chars)
+    return func(db_path, prompt, max_chars=max_chars, loci_version=loci_version)

@@ -226,6 +226,7 @@ def run(
     notes: str = None,
     max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
     model_timeout: int = DEFAULT_MODEL_TIMEOUT,
+    loci_version: int = 1,
 ) -> str:
     """Run the benchmark. Returns the run_id for downstream judging/reporting."""
     if not os.path.exists(soy_db):
@@ -286,6 +287,7 @@ def run(
     else:
         print(f"Max context:  unlimited (length confound NOT controlled)")
     print(f"SoY DB:       {soy_db}")
+    print(f"Loci version: {loci_version}")
     print(f"Results DB:   {RESULTS_DB_PATH}")
     print(f"Total runs:   {total}")
     print()
@@ -301,7 +303,9 @@ def run(
             label = f"  [{arm_id}]"
 
             # Step 1: assemble context via the arm (with optional char-budget parity)
-            arm_result = arms.run_arm(arm_id, soy_db, prompt, max_chars=max_context_chars)
+            arm_result = arms.run_arm(arm_id, soy_db, prompt,
+                                     max_chars=max_context_chars,
+                                     loci_version=loci_version)
             assembly_ms = arm_result.elapsed_ms
 
             if arm_result.error:
@@ -488,6 +492,11 @@ def main() -> None:
     p_run.add_argument("--timeout", type=int, default=DEFAULT_MODEL_TIMEOUT,
                        help=f"Per-call test model timeout in seconds "
                             f"(default: {DEFAULT_MODEL_TIMEOUT})")
+    p_run.add_argument("--loci-version", type=int, default=1, choices=[1, 2],
+                       help="Loci layer version: 1=shared.loci (V1 tree render), "
+                            "2=shared.loci_v2 (V2 narrative render + entity_edges). "
+                            "Also switches arms A/B to use V2 table names (notes_v2 "
+                            "instead of standalone_notes, etc.)")
     p_run.add_argument("--notes", default="",
                        help="Optional notes attached to the run record")
 
@@ -533,6 +542,8 @@ def main() -> None:
                             help="Optional notes attached to the run record")
     p_test_pkg.add_argument("--soy-db", default=DEFAULT_SOY_DB,
                             help=f"Path to soy.db (default: {DEFAULT_SOY_DB})")
+    p_test_pkg.add_argument("--loci-version", type=int, default=1, choices=[1, 2],
+                            help="Loci layer version (default: 1)")
 
     p_test_imp = sub.add_parser(
         "test-import",
@@ -554,6 +565,7 @@ def main() -> None:
             notes=args.notes,
             max_context_chars=args.max_context_chars,
             model_timeout=args.timeout,
+            loci_version=args.loci_version,
         )
     elif args.cmd == "status":
         status()
@@ -611,6 +623,7 @@ def main() -> None:
             prompt_ids=_parse_csv(args.prompts) or None,
             max_context_chars=args.max_context_chars,
             notes=args.notes,
+            loci_version=args.loci_version,
         )
         print(f"Test package: {result['package_path']}")
         print(f"Run ID:       {result['run_id']}")

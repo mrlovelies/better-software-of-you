@@ -89,6 +89,7 @@ def create_server() -> FastMCP:
     from software_of_you.tools.calendar_tool import register as register_calendar
     from software_of_you.tools.views import register as register_views
     from software_of_you.tools.docs_tool import register as register_docs
+    from software_of_you.tools.explore import register as register_explore
 
     register_contacts(server)
     register_interactions(server)
@@ -105,5 +106,6 @@ def create_server() -> FastMCP:
     register_calendar(server)
     register_views(server)
     register_docs(server)
+    register_explore(server)
 
     return server

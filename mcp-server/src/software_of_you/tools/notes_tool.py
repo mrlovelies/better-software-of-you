@@ -63,6 +63,30 @@ def _add(title, content, tags, linked_contacts, linked_projects, pinned):
         ),
     ])
 
+    # Create mentions edges for linked contacts/projects
+    from software_of_you.edges import create_edges, last_id_for
+    import json as _json
+    real_nid = last_id_for("standalone_notes")
+    if real_nid:
+        edges = []
+        if linked_contacts:
+            try:
+                for cid in _json.loads(linked_contacts):
+                    edges.append({"src_type": "notes_v2", "src_id": real_nid,
+                                  "dst_type": "contact", "dst_id": cid,
+                                  "edge_type": "mentions"})
+            except (ValueError, TypeError):
+                pass
+        if linked_projects:
+            try:
+                for pid in _json.loads(linked_projects):
+                    edges.append({"src_type": "notes_v2", "src_id": real_nid,
+                                  "dst_type": "project", "dst_id": pid,
+                                  "edge_type": "mentions"})
+            except (ValueError, TypeError):
+                pass
+        create_edges(edges)
+
     return {
         "result": {"note_id": nid, "title": title, "pinned": pinned},
         "_context": {

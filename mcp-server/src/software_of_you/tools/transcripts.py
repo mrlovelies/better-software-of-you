@@ -239,6 +239,19 @@ def _add_analysis(transcript_id, participants, metrics, commitments_data,
     if statements:
         execute_many(statements)
 
+    # Create participated_in edges for participants with contact_ids
+    if participants:
+        from software_of_you.edges import create_edges
+        try:
+            parts = json.loads(participants) if isinstance(participants, str) else participants
+            edges = [{"src_type": "transcript", "src_id": transcript_id,
+                      "dst_type": "contact", "dst_id": p["contact_id"],
+                      "edge_type": "participated_in"}
+                     for p in parts if p.get("contact_id")]
+            create_edges(edges)
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+
     return {
         "result": {"transcript_id": transcript_id, "analysis_stored": True},
         "_context": {

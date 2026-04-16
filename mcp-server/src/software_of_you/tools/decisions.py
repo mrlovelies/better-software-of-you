@@ -64,6 +64,21 @@ def _log(title, context, options_considered, decision, rationale, status, projec
         ),
     ])
 
+    # Create edges: decision→project and decision→contact
+    from software_of_you.edges import create_edges, last_id_for
+    real_did = last_id_for("decisions")
+    if real_did:
+        edges = []
+        if project_id:
+            edges.append({"src_type": "decision", "src_id": real_did,
+                          "dst_type": "project", "dst_id": project_id,
+                          "edge_type": "decided_in"})
+        if contact_id:
+            edges.append({"src_type": "decision", "src_id": real_did,
+                          "dst_type": "contact", "dst_id": contact_id,
+                          "edge_type": "involves_contact"})
+        create_edges(edges)
+
     return {
         "result": {"decision_id": did, "title": title, "status": status},
         "_context": {

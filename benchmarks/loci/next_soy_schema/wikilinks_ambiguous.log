@@ -1,0 +1,10 @@
+# wikilinks_ambiguous.log — aliases that resolve to multiple entities
+# Generated: 2026-04-11 21:23:01
+
+James:
+  - James Andrews (existing:7)
+  - Jim Somerville (new)
+
+Chris:
+  - Chris Graham (new)
+  - Chris Hudson (unresolved)

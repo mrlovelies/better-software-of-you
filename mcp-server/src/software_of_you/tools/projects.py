@@ -91,6 +91,13 @@ def _add(name, description, client_id, client_name, status, priority, start_date
         if rows:
             client_info = {"id": cid, "name": rows[0]["name"], "company": rows[0]["company"]}
 
+    # Create client_of edge
+    if cid:
+        from software_of_you.edges import create_edge, last_id_for
+        real_pid = last_id_for("projects")
+        if real_pid:
+            create_edge("project", real_pid, "contact", cid, "client_of")
+
     return {
         "result": {"project_id": pid, "name": name, "status": status},
         "client": client_info,
@@ -135,6 +142,11 @@ def _edit(project_id, name, description, client_id, status, priority, target_dat
             (project_id, f"Updated: {', '.join(f.split(' =')[0] for f in updates[:-1])}"),
         ),
     ])
+
+    # Create client_of edge if client was set
+    if client_id:
+        from software_of_you.edges import create_edge
+        create_edge("project", project_id, "contact", client_id, "client_of")
 
     return {
         "result": {"project_id": project_id, "updated": True},
@@ -227,6 +239,12 @@ def _add_task(project_id, title, description, priority, due_date):
             (project_id, title),
         ),
     ])
+
+    # Create belongs_to_project edge
+    from software_of_you.edges import create_edge, last_id_for
+    real_tid = last_id_for("tasks", "project_id = ?", (project_id,))
+    if real_tid:
+        create_edge("task", real_tid, "project", project_id, "belongs_to_project")
 
     return {
         "result": {"task_id": tid, "project_id": project_id, "title": title},

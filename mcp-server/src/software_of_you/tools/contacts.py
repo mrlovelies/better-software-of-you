@@ -92,6 +92,21 @@ def _add(name, email, phone, company, role, contact_type, status, notes):
         )
         colleagues = rows_to_dicts(rows)
 
+    # Create colleague_of edges with other contacts at the same company
+    if colleagues:
+        from software_of_you.edges import create_edges, last_id_for
+        real_cid = last_id_for("contacts")
+        if real_cid:
+            edges = []
+            for col in colleagues:
+                edges.append({"src_type": "contact", "src_id": real_cid,
+                              "dst_type": "contact", "dst_id": col["id"],
+                              "edge_type": "colleague_of"})
+                edges.append({"src_type": "contact", "src_id": col["id"],
+                              "dst_type": "contact", "dst_id": real_cid,
+                              "edge_type": "colleague_of"})
+            create_edges(edges)
+
     return {
         "result": {"contact_id": contact_id, "name": name, "company": company},
         "colleagues_at_company": colleagues,

@@ -114,6 +114,12 @@ def _log(contact_id, contact_name, interaction_type, direction, subject, summary
             ),
         ])
 
+    # Create interaction_with edge
+    from software_of_you.edges import create_edge, last_id_for
+    iid = last_id_for("contact_interactions", "contact_id = ?", (cid,))
+    if iid:
+        create_edge("contact_interaction", iid, "contact", cid, "interaction_with")
+
     return {
         "result": {"contact_id": cid, "contact_name": resolved, "type": interaction_type, "subject": subject},
         "_context": {

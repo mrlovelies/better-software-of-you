@@ -1,0 +1,14 @@
+# Runtime artifacts (regenerable)
+results.db
+results.db-journal
+results.db-wal
+results.db-shm
+report-*.md
+package_*.json
+blind_map_*.json
+scores_*.json
+test_package_*.json
+test_answers_*.json
+*.bak
+__pycache__/
+*.pyc

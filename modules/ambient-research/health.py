@@ -92,7 +92,10 @@ MACHINES = {
 def log(msg: str):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{timestamp}] {msg}"
-    print(line)
+    # Only print when interactive — otherwise cron's stdout redirect duplicates
+    # every line into the log file on top of the f.write below.
+    if sys.stdout.isatty():
+        print(line)
     try:
         with open(LOG_FILE, "a") as f:
             f.write(line + "\n")

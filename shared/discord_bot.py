@@ -315,7 +315,7 @@ class SoYBot(discord.Client):
                 await interaction.response.send_message("Unauthorized.", ephemeral=True)
                 return
             await interaction.response.defer()
-            embed = self._build_debug_embed()
+            embed = self._build_debug_embed(str(interaction.channel_id))
             await interaction.followup.send(embed=embed)
 
         @self.tree.command(name="errors", description="Recent error log")
@@ -353,6 +353,16 @@ class SoYBot(discord.Client):
                 return
             await interaction.response.defer()
             text = self._unlink_channel(str(interaction.channel_id))
+            await interaction.followup.send(text)
+
+        @self.tree.command(name="set-model", description="Set preferred AI model for this channel")
+        @app_commands.describe(model="Model to use: sonnet (default), opus (smarter/slower), haiku (fast/cheap), or reset")
+        async def cmd_set_model(interaction: discord.Interaction, model: str):
+            if not self._is_owner(interaction):
+                await interaction.response.send_message("Unauthorized.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            text = self._set_channel_model(str(interaction.channel_id), model)
             await interaction.followup.send(text)
 
         @self.tree.command(name="clear", description="Clear conversation history for this channel")
@@ -1034,6 +1044,71 @@ class SoYBot(discord.Client):
             return row["project_id"], row["project_name"]
         return None, None
 
+    def _get_channel_model(self, channel_id):
+        """Get preferred model for a channel. Falls back to DEFAULT_MODEL."""
+        if not channel_id:
+            return DEFAULT_MODEL
+        with self._db() as conn:
+            row = conn.execute(
+                "SELECT preferred_model FROM discord_channel_projects WHERE channel_id = ?",
+                (str(channel_id),),
+            ).fetchone()
+        if row and row["preferred_model"] and row["preferred_model"] in ALLOWED_MODELS:
+            return row["preferred_model"]
+        return DEFAULT_MODEL
+
+    def _set_channel_model(self, channel_id, model):
+        """Set or reset the preferred model for a channel."""
+        model = model.strip().lower()
+        if model == "reset" or model == "default":
+            with self._db() as conn:
+                # Only update if the row exists
+                row = conn.execute(
+                    "SELECT channel_id FROM discord_channel_projects WHERE channel_id = ?",
+                    (channel_id,),
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        "UPDATE discord_channel_projects SET preferred_model = NULL WHERE channel_id = ?",
+                        (channel_id,),
+                    )
+                    conn.commit()
+            return f"✅ Model reset to default (**{DEFAULT_MODEL}**) for this channel."
+
+        if model not in ALLOWED_MODELS:
+            return (
+                f"❌ Unknown model `{model}`. Valid options: `sonnet`, `opus`, `haiku`, or `reset`.\n\n"
+                f"**sonnet** — default, fast and capable\n"
+                f"**opus** — best reasoning, slower and more expensive\n"
+                f"**haiku** — fastest, lightest tasks"
+            )
+
+        with self._db() as conn:
+            row = conn.execute(
+                "SELECT channel_id FROM discord_channel_projects WHERE channel_id = ?",
+                (channel_id,),
+            ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE discord_channel_projects SET preferred_model = ? WHERE channel_id = ?",
+                    (model, channel_id),
+                )
+            else:
+                # Channel not yet linked to a project — create a model-only entry
+                conn.execute(
+                    "INSERT INTO discord_channel_projects (channel_id, project_name, preferred_model) "
+                    "VALUES (?, '', ?)",
+                    (channel_id, model),
+                )
+            conn.commit()
+
+        model_notes = {
+            "opus": "🧠 Opus is on — best for complex reasoning, architecture, and writing. Slower and pricier.",
+            "haiku": "⚡ Haiku is on — fastest model, great for quick lookups and simple tasks.",
+            "sonnet": "✅ Sonnet is on — the default. Fast, capable, well-rounded.",
+        }
+        return f"✅ This channel will now use **{model}**.\n{model_notes.get(model, '')}"
+
     async def _sync_project_channels(self, guild):
         """Create Discord channels for all active projects and link them. Also creates #nudges."""
         with self._db() as conn:
@@ -1423,10 +1498,12 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
                 return workspace
         return None
 
-    def _call_claude(self, user_text, session_id, channel_id=None):
+    def _call_claude(self, user_text, session_id, channel_id=None, model=None):
         """Call claude -p with conversation context. Runs in thread pool.
         When in a linked project channel, runs from the project workspace
         so Claude has full codebase context via CLAUDE.md and file access."""
+        if model is None:
+            model = self._get_channel_model(channel_id)
         system_prompt = self._build_system_prompt(channel_id)
         # Get history — the current user message was already saved before this call,
         # so it's included in the history. We don't append it again.
@@ -1454,7 +1531,7 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
                 [
                     "claude", "-p",
                     "--system-prompt", system_prompt,
-                    "--model", DEFAULT_MODEL,
+                    "--model", model,
                     "--no-session-persistence",
                     prompt,
                 ],
@@ -1542,9 +1619,11 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
 
         return history
 
-    def _call_claude_with_history(self, history, channel_id=None):
+    def _call_claude_with_history(self, history, channel_id=None, model=None):
         """Call claude -p with pre-built conversation history (for thread mode).
         The full thread history is passed as context — no DB session needed."""
+        if model is None:
+            model = self._get_channel_model(channel_id)
         system_prompt = self._build_system_prompt(channel_id)
 
         prompt_parts = []
@@ -1568,7 +1647,7 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
                 [
                     "claude", "-p",
                     "--system-prompt", system_prompt,
-                    "--model", DEFAULT_MODEL,
+                    "--model", model,
                     "--no-session-persistence",
                     prompt,
                 ],
@@ -1945,7 +2024,7 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
 
         return embed
 
-    def _build_debug_embed(self):
+    def _build_debug_embed(self, channel_id=None):
         """Build rich embed for /debug."""
         uptime = ""
         if self.start_time_ts:
@@ -1959,9 +2038,12 @@ You're running locally on {owner_name}'s machine, with direct access to all SoY 
             ago = int(time.time() - self.last_claude_call)
             last_claude = f"{ago}s ago"
 
+        channel_model = self._get_channel_model(channel_id) if channel_id else DEFAULT_MODEL
+        model_display = channel_model if channel_model == DEFAULT_MODEL else f"{channel_model} ⭐"
+
         embed = discord.Embed(title="SoY Discord Debug", color=PROJECT_COLOR)
         embed.add_field(name="Mode", value="local (claude -p)", inline=True)
-        embed.add_field(name="Model", value=DEFAULT_MODEL, inline=True)
+        embed.add_field(name="Model", value=model_display, inline=True)
         embed.add_field(name="Python", value=sys.version.split()[0], inline=True)
         embed.add_field(name="Uptime", value=uptime or "unknown", inline=True)
         embed.add_field(name="Messages", value=str(self.message_count), inline=True)

@@ -55,3 +55,8 @@ benchmarks/*
 
 # Personal infrastructure docs with hostnames/keys/identifiers — never commit
 docs/plex-media-stack.md
+
+# Loci benchmark — generated artifacts (regenerable from seed_next_soy.py)
+benchmarks/loci/next_soy_schema/next_soy.db
+benchmarks/loci/next_soy_schema/*.log
+benchmarks/loci/seed_reports/

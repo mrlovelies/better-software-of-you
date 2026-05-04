@@ -41,7 +41,7 @@ except ImportError:
 
 MACHINES = {
     "soy-1": {"ip": "100.91.234.67", "port": 11434, "tier": 1},
-    "legion": {"ip": "100.69.255.78", "port": 11434, "tier": 2},
+    "legion": {"ip": "legion", "port": 11434, "tier": 2},
     "lucy": {"ip": "100.74.238.16", "port": 11434, "tier": 2},
 }
 

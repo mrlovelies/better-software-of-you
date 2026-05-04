@@ -24,7 +24,7 @@ MACHINES = {
         "models": ["mistral:7b", "qwen2.5:7b", "llama3.1:8b"],
     },
     "legion": {
-        "ip": "100.69.255.78",
+        "ip": "legion",
         "port": 11434,
         "tier": 2,
         "models": ["gemma4:e2b", "gemma4:e4b", "qwen3:30b-a3b", "mistral:7b"],

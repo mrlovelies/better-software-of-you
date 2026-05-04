@@ -31,7 +31,7 @@ ENV_PATH = os.path.join(PLUGIN_ROOT, ".env")
 MACHINES = {
     "soy-1": {"ip": "100.91.234.67", "port": 11434},
     "lucy": {"ip": "100.74.238.16", "port": 11434},
-    "legion": {"ip": "100.69.255.78", "port": 11434},
+    "legion": {"ip": "legion", "port": 11434},
 }
 
 # Standard benchmark prompts — representative of actual SoY workloads

@@ -66,7 +66,7 @@ import test_subagent  # noqa: E402
 HOSTS = {
     "razer": "http://100.91.234.67:11434",   # Mistral 7B / soy-1 / Tier 1
     "lucy": "http://100.74.238.16:11434",    # Qwen 2.5 14B / Tier 2
-    "legion": "http://100.69.255.78:11434",  # Gemma 4 / RTX 5080
+    "legion": "http://legion:11434",  # Gemma 4 / RTX 5080
     "local": "http://localhost:11434",
 }
 

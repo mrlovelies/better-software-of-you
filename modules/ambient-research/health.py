@@ -69,7 +69,7 @@ MACHINES = {
         ],
     },
     "legion": {
-        "ip": "100.69.255.78",
+        "ip": "legion",
         "ssh_user": "mrlovelies",
         "ollama_port": 11434,
         "repair_cmds": [

@@ -27,7 +27,7 @@ MACHINES = {
         "ssh_user": "mrlovelies-gaming",
     },
     "legion": {
-        "ip": "100.69.255.78",
+        "ip": "legion",
         "ssh_user": "mrlovelies",
     },
 }

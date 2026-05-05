@@ -1,0 +1,53 @@
+{
+  "module": "calendar",
+  "version": "1.0.0",
+  "persona": {
+    "name": "Schedule Analyst",
+    "tone": "time-aware, prep-oriented, concise",
+    "system_prompt": "You analyze calendar data and prepare meeting briefs. Focus on what's next, who's involved, and what context the user needs. Pull in relationship data and recent communication history for meeting attendees."
+  },
+  "questions": [
+    {
+      "id": "calendar.today",
+      "label": "What's on my calendar today?",
+      "short_label": "Today's schedule",
+      "keywords": ["today", "calendar", "schedule", "agenda"],
+      "featured": true,
+      "data_requires": {"calendar_events": 1},
+      "context_queries": [
+        {"key": "today", "sql": "SELECT title, start_time, end_time, time_context, minutes_until, duration_minutes, attendees, project_name FROM v_meeting_prep WHERE time_context IN ('now', 'imminent', 'today') ORDER BY start_time"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    },
+    {
+      "id": "calendar.prep_next",
+      "label": "Prep me for my next meeting",
+      "short_label": "Meeting prep",
+      "keywords": ["prep", "prepare", "next meeting", "brief", "ready"],
+      "featured": true,
+      "data_requires": {"calendar_events": 1},
+      "context_queries": [
+        {"key": "meeting", "sql": "SELECT title, start_time, end_time, minutes_until, duration_minutes, attendees, description, contact_ids, project_name, project_status FROM v_meeting_prep WHERE minutes_until > 0 ORDER BY start_time LIMIT 1"},
+        {"key": "attendee_health", "sql": "SELECT name, company, days_silent, emails_30d, your_open_commitments, their_open_commitments, relationship_depth, trajectory FROM v_contact_health LIMIT 20"}
+      ],
+      "prompt_template": "Prepare a brief for my next meeting.\n\n## Meeting\n{meeting}\n\n## Attendee Relationship Data\n{attendee_health}\n\nGive me:\n1. Who's attending and their current relationship status\n2. Recent context (last email, days since contact)\n3. Open commitments in either direction\n4. 2-3 things I should bring up or be aware of",
+      "answer_format": "insight_synthesis",
+      "requires_llm": true,
+      "llm_tier": "local_preferred"
+    },
+    {
+      "id": "calendar.this_week",
+      "label": "What's my week look like?",
+      "short_label": "This week",
+      "keywords": ["week", "schedule", "upcoming", "ahead"],
+      "featured": true,
+      "data_requires": {"calendar_events": 1},
+      "context_queries": [
+        {"key": "week", "sql": "SELECT title, start_time, end_time, duration_minutes, attendees, project_name, time_context FROM v_meeting_prep WHERE minutes_until > 0 AND minutes_until < 10080 ORDER BY start_time"}
+      ],
+      "answer_format": "data_table",
+      "requires_llm": false
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-04-07T17:39:31.375215",
+  "qpacks": [
+    {
+      "module": "calendar",
+      "file": "calendar.qpack.json",
+      "questions": 3
+    },
+    {
+      "module": "crm",
+      "file": "crm.qpack.json",
+      "questions": 5
+    },
+    {
+      "module": "notes",
+      "file": "notes.qpack.json",
+      "questions": 3
+    },
+    {
+      "module": "gmail",
+      "file": "gmail.qpack.json",
+      "questions": 4
+    },
+    {
+      "module": "core",
+      "file": "core.qpack.json",
+      "questions": 5
+    },
+    {
+      "module": "project-tracker",
+      "file": "project-tracker.qpack.json",
+      "questions": 5
+    }
+  ],
+  "total_questions": 25,
+  "data_state": {
+    "contacts": 32,
+    "emails": 126,
+    "calendar_events": 1,
+    "projects": 15,
+    "tasks": 179,
+    "commitments": 0,
+    "interactions": 2,
+    "transcripts": 0,
+    "decisions": 40,
+    "journal_entries": 2,
+    "follow_ups": 0,
+    "notes": 14
+  }
+}

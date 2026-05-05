@@ -1,0 +1,33 @@
+{
+  "name": "qpack-generator",
+  "display_name": "QPack Generator",
+  "version": "0.1.0",
+  "description": "Scans SoY data state, generates adaptive QPack question bundles for the GUI layer.",
+  "migration": null,
+  "tables": [],
+  "commands": [],
+  "standalone_features": [
+    "Data state scanning and module detection",
+    "Template-based QPack generation with adaptive filtering",
+    "Context query validation against computed views",
+    "Modular pipeline with pluggable steps"
+  ],
+  "enhancements": [
+    {
+      "requires_module": "crm",
+      "features": ["CRM QPack: contact health, priorities, cold relationships"]
+    },
+    {
+      "requires_module": "project-tracker",
+      "features": ["Projects QPack: overdue tasks, project health, next actions"]
+    },
+    {
+      "requires_module": "gmail",
+      "features": ["Email QPack: response queue, contact threads"]
+    },
+    {
+      "requires_module": "calendar",
+      "features": ["Calendar QPack: today's schedule, meeting prep"]
+    }
+  ]
+}

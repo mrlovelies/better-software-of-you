@@ -1,0 +1,15 @@
+{
+  "format": "data_table",
+  "columns": [],
+  "rows": [],
+  "row_count": 0,
+  "entity_links": [],
+  "sort_key": null,
+  "sort_direction": "desc",
+  "_meta": {
+    "question_id": "email.needs_reply",
+    "question_label": "What emails need my reply?",
+    "formatted_at": "2026-04-07T16:31:29.099370",
+    "requires_llm": false
+  }
+}
